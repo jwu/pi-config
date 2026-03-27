@@ -57,8 +57,8 @@
     "userMessageBg": "black",
     "userMessageText": "",
 
-    "customMessageBg": "dark_cyan",
-    "customMessageText": "bg_d",
+    "customMessageBg": "bg_d",
+    "customMessageText": "fg",
     "customMessageLabel": "purple",
 
     "toolSuccessBg": "bg_d",
