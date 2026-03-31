@@ -35,9 +35,7 @@
 		"diff_add": "#aad482",
 		"diff_delete": "#e8828b",
 		"diff_change": "#1c3448",
-		"diff_text": "#2c5372",
-
-    "info_bg": "#3a3326"
+		"diff_text": "#2c5372"
   },
   "colors": {
     "accent": "cyan",
@@ -103,8 +101,8 @@
     "bashMode": "orange"
   },
   "export": {
-    "pageBg": "bg",
-    "cardBg": "bg_d",
-    "infoBg": "info_bg"
+    "pageBg": "#282c34",
+    "cardBg": "#21252b",
+    "infoBg": "#8a3fa0"
   }
 }
