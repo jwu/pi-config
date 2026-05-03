@@ -25,7 +25,9 @@
 		"dark_cyan": "#2b6f77",
 		"dark_red": "#993939",
 		"dark_yellow": "#93691d",
-		"dark_purple": "#8a3fa0",
+		"dark_blue": "#5f87af",
+		"dark_purple": "#44475a",
+		"dark_grey": "#414959",
 
     "darker_red": "#8b0104",
     "darker_green": "#2c382b",
@@ -52,8 +54,8 @@
     "error": "red",
     "warning": "yellow",
 
-    "userMessageBg": "black",
-    "userMessageText": "",
+    "userMessageBg": "dark_blue",
+    "userMessageText": "bg",
 
     "customMessageBg": "bg_d",
     "customMessageText": "fg",
