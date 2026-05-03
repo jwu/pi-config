@@ -31,6 +31,7 @@
 
     "darker_red": "#8b0104",
     "darker_green": "#2c382b",
+    "darker_blue": "#123b6d",
 
     "darkest_red": "#3a2d2f",
 
@@ -54,8 +55,8 @@
     "error": "red",
     "warning": "yellow",
 
-    "userMessageBg": "dark_blue",
-    "userMessageText": "bg",
+    "userMessageBg": "darker_blue",
+    "userMessageText": "fg",
 
     "customMessageBg": "bg_d",
     "customMessageText": "fg",
@@ -93,10 +94,10 @@
     "syntaxPunctuation": "fg",
 
     "thinkingText": "grey",
-    "thinkingOff": "black",
-    "thinkingMinimal": "grey",
-    "thinkingLow": "blue",
-    "thinkingMedium": "cyan",
+    "thinkingOff": "grey",
+    "thinkingMinimal": "yellow",
+    "thinkingLow": "green",
+    "thinkingMedium": "blue",
     "thinkingHigh": "purple",
     "thinkingXhigh": "red",
 
