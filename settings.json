@@ -4,6 +4,7 @@
   "enableInstallTelemetry": false,
   "packages": [
     "npm:pi-animations",
-    "npm:pi-powerline"
+    "npm:pi-powerline",
+    "npm:@johnnywu/pi-terminal-signals"
   ]
 }
