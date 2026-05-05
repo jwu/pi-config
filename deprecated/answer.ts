@@ -507,13 +507,13 @@ export default function (pi: ExtensionAPI) {
 			);
 	};
 
-	pi.registerCommand("answer", {
+	pi.registerCommand("answer@jwu", {
 		description: "Extract questions from last assistant message into interactive Q&A",
 		handler: (_args, ctx) => answerHandler(ctx),
 	});
 
-	pi.registerShortcut("ctrl+.", {
-		description: "Extract and answer questions",
-		handler: answerHandler,
-	});
+	// pi.registerShortcut("ctrl+.", {
+	// 	description: "Extract and answer questions",
+	// 	handler: answerHandler,
+	// });
 }

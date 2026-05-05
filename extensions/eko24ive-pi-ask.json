@@ -1,0 +1,31 @@
+{
+  "schemaVersion": 2,
+  "answer": {
+    "extractionModels": [
+      {
+        "provider": "deepseek",
+        "id": "deepseek-v4-flash"
+      },
+      {
+        "provider": "openai-codex",
+        "id": "gpt-5.4-mini"
+      }
+    ],
+    "extractionRetries": 1,
+    "extractionTimeoutMs": 30000
+  },
+  "behaviour": {
+    "autoSubmitWhenAnsweredWithoutNotes": false,
+    "confirmDismissWhenDirty": true,
+    "doublePressReviewShortcuts": true,
+    "showFooterHints": true
+  },
+  "keymaps": {
+    "cancel": "esc",
+    "dismiss": "ctrl+c",
+    "toggle": "space",
+    "confirm": "enter",
+    "optionNote": "n",
+    "questionNote": "shift+n"
+  }
+}
