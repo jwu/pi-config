@@ -15,7 +15,7 @@ argument-hint: "[--dry-run]"
 ## 2. 分析并分组
 根据改动文件的内容、路径和变更性质，将改动分为逻辑独立的批次：
 
-- **不同类型分开提交**：feat、fix、docs、refactor、config、chore 等各自成批
+- **不同类型分开提交**：feat、fix、docs、style、refactor、perf、test、build、ci、chore、revert 等各自成批
 - **不同模块分开提交**：不相关的文件改动不要混在一起
 - **每个批次应可独立回滚**：单一批次的改动应有完整的意义
 - **优先提交依赖项**：被后续改动依赖的批次先提交
@@ -24,7 +24,7 @@ argument-hint: "[--dry-run]"
 每个批次生成符合项目规范的提交信息：
 
 - 格式：`<type>: <简短描述>`
-- type 类型：feat / fix / docs / refactor / config / chore / style / test
+- type 类型：feat / fix / docs / style / refactor / perf / test / build / ci / chore / revert
 - 描述用简洁中文，动词开头，不超过 50 字
 - 复杂改动可在 `git commit -m` 中追加 `-m "<详细说明>"`
 
