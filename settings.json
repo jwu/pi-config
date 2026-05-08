@@ -1,6 +1,7 @@
 {
   "shellCommandPrefix": "python(){ uv run python \"$@\"; }\npython3(){ uv run python \"$@\"; }\nexport -f python\nexport -f python3",
   "theme": "one-dark",
+  "quietStartup": true,
   "enableInstallTelemetry": false,
   "packages": [
     "npm:pi-animations",
