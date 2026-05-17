@@ -7,6 +7,7 @@
     "npm:pi-animations",
     "npm:pi-powerline",
     "npm:@johnnywu/pi-terminal-signals",
+    "npm:@johnnywu/pi-default-tools",
     "npm:@johnnywu/pi-filechanges",
     "npm:@eko24ive/pi-ask"
   ]
