@@ -3,12 +3,23 @@
   "theme": "one-dark",
   "quietStartup": true,
   "enableInstallTelemetry": false,
+  "extensions": [
+    "~/bin/pi-config/extensions"
+  ],
   "packages": [
-    "npm:pi-animations",
     "npm:pi-powerline",
-    "npm:@johnnywu/pi-terminal-signals",
     "npm:@johnnywu/pi-default-tools",
     "npm:@johnnywu/pi-filechanges",
-    "npm:@eko24ive/pi-ask"
+    "npm:@johnnywu/pi-terminal-signals",
+    "npm:pi-animations",
+    "npm:@eko24ive/pi-ask",
+    "npm:pi-subagents",
+    "npm:pi-intercom"
+  ],
+  "tools": [
+    "...",
+    "grep",
+    "find",
+    "ls"
   ]
 }
