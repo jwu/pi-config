@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from '@mariozechner/pi-coding-agent';
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
 // Auto-format .ts files with prettier after edit/write tools
 export default function (pi: ExtensionAPI) {

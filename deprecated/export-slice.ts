@@ -4,8 +4,8 @@ import {
 	type ExtensionCommandContext,
 	type SessionEntry,
 	type SessionMessageEntry,
-} from "@mariozechner/pi-coding-agent";
-import { truncateToWidth, visibleWidth } from "/Users/zyq/.nvm/versions/node/v24.13.0/lib/node_modules/@mariozechner/pi-coding-agent/node_modules/@mariozechner/pi-tui/dist/index.js";
+} from "@earendil-works/pi-coding-agent";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { randomBytes, randomUUID } from "node:crypto";
 import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
