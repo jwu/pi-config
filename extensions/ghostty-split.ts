@@ -16,11 +16,7 @@ function appleScriptEscape(s: string): string {
 // Build and execute AppleScript to split and run pi.
 // Uses initialInput instead of command so the shell runs as a normal login
 // shell (loads .bashrc/.zshrc, which initializes nvm and puts pi on PATH).
-function ghosttySplit(
-  direction: 'right' | 'down',
-  sessionFile: string,
-  cwd: string,
-): void {
+function ghosttySplit(direction: 'right' | 'down', sessionFile: string, cwd: string): void {
   const escapedSessionFile = appleScriptEscape(sessionFile);
   const escapedCwd = appleScriptEscape(cwd);
 
@@ -39,8 +35,7 @@ end tell
 export default function (pi: ExtensionAPI) {
   // /split: new_split:down
   pi.registerCommand('split', {
-    description:
-      'Open a new pi split below (Ghostty: new_split:down), loading current session',
+    description: 'Open a new pi split below (Ghostty: new_split:down), loading current session',
     handler: async (_args, ctx) => {
       if (!isGhosttyOnMac()) {
         ctx.ui.notify(

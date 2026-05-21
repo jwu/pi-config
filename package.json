@@ -1,0 +1,23 @@
+{
+  "name": "pi-config",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "bun tsc --noEmit --ignoreDeprecations 6.0",
+    "lint": "bun run format:check && bun run typecheck",
+    "format": "prettier --write 'extensions/**/*.ts' 'extensions-optional/**/*.ts'",
+    "format:check": "prettier --check 'extensions/**/*.ts' 'extensions-optional/**/*.ts'"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.75.4",
+    "@earendil-works/pi-tui": "^0.75.4",
+    "@types/node": "^24.3.0",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.3"
+  }
+}

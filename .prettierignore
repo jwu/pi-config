@@ -1,0 +1,5 @@
+node_modules/
+.pi/
+.git/
+bun.lock
+CHANGELOG.md

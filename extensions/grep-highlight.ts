@@ -1,3 +1,4 @@
+import * as os from 'node:os';
 import {
   createGrepToolDefinition,
   DEFAULT_MAX_BYTES,
@@ -48,6 +49,47 @@ function getTextOutput(result: ToolResultLike): string {
     .trim();
 }
 
+function stringArg(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (value == null) return '';
+  return null;
+}
+
+function shortenPath(value: string): string {
+  const home = os.homedir();
+  if (value.startsWith(home)) return `~${value.slice(home.length)}`;
+  return value;
+}
+
+function invalidArgText(theme: Theme): string {
+  return theme.fg('error', '[invalid arg]');
+}
+
+function renderGrepCall(args: Record<string, unknown> | undefined, theme: Theme): string {
+  const pattern = stringArg(args?.pattern);
+  const rawPath = stringArg(args?.path);
+  const path = rawPath !== null ? shortenPath(rawPath || '.') : null;
+  const glob = stringArg(args?.glob);
+  const limit = args?.limit;
+  const invalidArg = invalidArgText(theme);
+
+  let text =
+    theme.fg('toolTitle', theme.bold('grep')) +
+    ' ' +
+    (pattern === null ? invalidArg : theme.fg('syntaxKeyword', `/${pattern || ''}/`)) +
+    theme.fg('dim', ' in ') +
+    (path === null ? invalidArg : theme.fg('accent', path));
+
+  if (glob) {
+    text += theme.fg('muted', ` (${glob})`);
+  }
+  if (limit !== undefined) {
+    text += theme.fg('toolOutput', ` limit ${limit}`);
+  }
+
+  return text;
+}
+
 function renderGrepLine(line: string, theme: Theme): string {
   const matchLine = /^(.+):(\d+): (.*)$/.exec(line);
   if (matchLine) {
@@ -55,7 +97,7 @@ function renderGrepLine(line: string, theme: Theme): string {
     const lineNumber = matchLine[2] ?? '';
     const content = matchLine[3] ?? '';
     return (
-      theme.fg('syntaxFunction', filePath) +
+      theme.fg('accent', filePath) +
       theme.fg('dim', ':') +
       theme.fg('syntaxNumber', lineNumber) +
       theme.fg('dim', ':') +
@@ -107,6 +149,12 @@ export default function (pi: ExtensionAPI): void {
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const tool = createGrepToolDefinition(ctx?.cwd ?? cwd);
       return tool.execute(toolCallId, params, signal, onUpdate, ctx);
+    },
+
+    renderCall(args, theme, context) {
+      const component = (context.lastComponent as Text | undefined) ?? new Text('', 0, 0);
+      component.setText(renderGrepCall(args as Record<string, unknown> | undefined, theme));
+      return component;
     },
 
     renderResult(result, options, theme, context) {
