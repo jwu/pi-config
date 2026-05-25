@@ -7,14 +7,15 @@
     "~/bin/pi-config/extensions"
   ],
   "packages": [
-    "npm:pi-powerline",
+    "npm:@eko24ive/pi-ask",
     "npm:@johnnywu/pi-default-tools",
     "npm:@johnnywu/pi-filechanges",
     "npm:@johnnywu/pi-terminal-signals",
+    "npm:@johnnywu/pi-webfetch",
     "npm:pi-animations",
-    "npm:@eko24ive/pi-ask",
-    "npm:pi-subagents",
-    "npm:pi-intercom"
+    "npm:pi-intercom",
+    "npm:pi-powerline",
+    "npm:pi-subagents"
   ],
   "tools": [
     "...",
