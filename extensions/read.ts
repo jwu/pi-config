@@ -8,6 +8,7 @@ import {
   getLanguageFromPath,
   highlightCode,
   keyHint,
+  keyText,
   type ExtensionAPI,
   type ReadToolDetails,
   type ReadToolInput,
@@ -38,6 +39,12 @@ type ReadArgsLike = Partial<ReadToolInput> & {
   file_path?: unknown;
   path?: unknown;
 };
+
+interface ReadRenderCallContextLike {
+  cwd: string;
+  expanded: boolean;
+  lastComponent: unknown;
+}
 
 interface ReadRenderContextLike {
   args: ReadArgsLike;
@@ -133,6 +140,19 @@ function toPosixPath(filePath: string): string {
   return filePath.split(sep).join('/');
 }
 
+function formatPathRelativeToCwdOrAbsolute(absolutePath: string, cwd: string): string {
+  const relativePath = relative(resolve(cwd), resolve(absolutePath));
+  if (
+    relativePath &&
+    relativePath !== '..' &&
+    !relativePath.startsWith(`..${sep}`) &&
+    !isAbsolute(relativePath)
+  ) {
+    return toPosixPath(relativePath);
+  }
+  return absolutePath;
+}
+
 function getPiDocsClassification(absolutePath: string): CompactReadClassification | undefined {
   const relativePath = relative(resolve(PI_PACKAGE_ROOT), resolve(absolutePath));
   if (
@@ -161,7 +181,7 @@ function getCompactReadClassification(
   const absolutePath = resolve(cwd, rawPath);
   const fileName = basename(absolutePath);
   if (fileName === 'SKILL.md') {
-    return { kind: 'skill', label: basename(dirname(absolutePath)) || fileName };
+    return { kind: 'skill', label: formatPathRelativeToCwdOrAbsolute(dirname(absolutePath), cwd) };
   }
 
   const docsClassification = getPiDocsClassification(absolutePath);
@@ -172,6 +192,22 @@ function getCompactReadClassification(
   }
 
   return undefined;
+}
+
+function formatReadLineRange(args: ReadArgsLike | undefined, theme: Theme): string {
+  if (args?.offset === undefined && args?.limit === undefined) return '';
+  const startLine = args.offset ?? 1;
+  const endLine = args.limit !== undefined ? startLine + args.limit - 1 : '';
+  return theme.fg('warning', `:${startLine}${endLine ? `-${endLine}` : ''}`);
+}
+
+function formatSkillReadCall(
+  classification: CompactReadClassification,
+  args: ReadArgsLike | undefined,
+  theme: Theme,
+): string {
+  const expandHint = theme.fg('dim', ` (${keyText('app.tools.expand')} to expand)`);
+  return `${theme.fg('toolTitle', theme.bold('read skill'))} ${theme.fg('accent', classification.label)}${formatReadLineRange(args, theme)}${expandHint}`;
 }
 
 function formatReadResult(
@@ -240,6 +276,21 @@ export default function (pi: ExtensionAPI): void {
     async execute(toolCallId, params, signal, onUpdate, ctx) {
       const tool = createReadToolDefinition(ctx?.cwd ?? cwd);
       return tool.execute(toolCallId, params, signal, onUpdate, ctx);
+    },
+
+    renderCall(args, theme, context) {
+      const readContext = context as ReadRenderCallContextLike;
+      const classification = !readContext.expanded
+        ? getCompactReadClassification(args as ReadArgsLike, readContext.cwd)
+        : undefined;
+      if (classification?.kind !== 'skill') {
+        return read.renderCall?.(args, theme, context) ?? new Text('', 0, 0);
+      }
+
+      const component =
+        readContext.lastComponent instanceof Text ? readContext.lastComponent : new Text('', 0, 0);
+      component.setText(formatSkillReadCall(classification, args as ReadArgsLike, theme));
+      return component;
     },
 
     renderResult(result, options, theme, context) {
