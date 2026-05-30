@@ -14,7 +14,7 @@ import {
   type Theme,
   type ToolRenderResultOptions,
 } from '@earendil-works/pi-coding-agent';
-import { Text } from '@earendil-works/pi-tui';
+import { getCapabilities, getImageDimensions, imageFallback, Text } from '@earendil-works/pi-tui';
 
 interface TextContentLike {
   type: 'text';
@@ -34,8 +34,13 @@ interface ReadResultLike {
   details?: ReadToolDetails;
 }
 
+type ReadArgsLike = Partial<ReadToolInput> & {
+  file_path?: unknown;
+  path?: unknown;
+};
+
 interface ReadRenderContextLike {
-  args: ReadToolInput;
+  args: ReadArgsLike;
   cwd: string;
   isError: boolean;
   showImages: boolean;
@@ -78,20 +83,32 @@ function replaceTabs(text: string): string {
 }
 
 function getTextOutput(result: ReadResultLike, showImages: boolean): string {
-  const text = result.content
-    .filter((content): content is TextContentLike => content.type === 'text')
-    .map((content) => sanitizeDisplayText(content.text))
-    .join('\n');
+  const textBlocks = result.content.filter(
+    (content): content is TextContentLike => content.type === 'text',
+  );
+  const imageBlocks = result.content.filter(
+    (content): content is ImageContentLike => content.type === 'image',
+  );
 
-  if (showImages) return text;
+  let output = textBlocks.map((content) => sanitizeDisplayText(content.text || '')).join('\n');
+  const caps = getCapabilities();
 
-  const imageFallbacks = result.content
-    .filter((content): content is ImageContentLike => content.type === 'image')
-    .map((content) => `[Image: ${content.mimeType ?? 'image/unknown'}]`)
-    .join('\n');
+  if (imageBlocks.length > 0 && (!caps.images || !showImages)) {
+    const imageIndicators = imageBlocks
+      .map((image) => {
+        const mimeType = image.mimeType ?? 'image/unknown';
+        const dimensions =
+          image.data && image.mimeType
+            ? (getImageDimensions(image.data, image.mimeType) ?? undefined)
+            : undefined;
+        return imageFallback(mimeType, dimensions);
+      })
+      .join('\n');
 
-  if (!imageFallbacks) return text;
-  return text ? `${text}\n${imageFallbacks}` : imageFallbacks;
+    output = output ? `${output}\n${imageIndicators}` : imageIndicators;
+  }
+
+  return output;
 }
 
 function trimTrailingEmptyLines(lines: string[]): string[] {
@@ -100,6 +117,16 @@ function trimTrailingEmptyLines(lines: string[]): string[] {
     end--;
   }
   return lines.slice(0, end);
+}
+
+function str(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (value == null) return '';
+  return null;
+}
+
+function getReadArgPath(args: ReadArgsLike | undefined): string | null {
+  return str(args?.file_path ?? args?.path);
 }
 
 function toPosixPath(filePath: string): string {
@@ -125,10 +152,10 @@ function getPiDocsClassification(absolutePath: string): CompactReadClassificatio
 }
 
 function getCompactReadClassification(
-  args: ReadToolInput | undefined,
+  args: ReadArgsLike | undefined,
   cwd: string,
 ): CompactReadClassification | undefined {
-  const rawPath = args?.path;
+  const rawPath = getReadArgPath(args);
   if (!rawPath) return undefined;
 
   const absolutePath = resolve(cwd, rawPath);
@@ -148,7 +175,7 @@ function getCompactReadClassification(
 }
 
 function formatReadResult(
-  args: ReadToolInput | undefined,
+  args: ReadArgsLike | undefined,
   result: ReadResultLike,
   options: ToolRenderResultOptions,
   theme: Theme,
@@ -161,7 +188,7 @@ function formatReadResult(
     return '';
   }
 
-  const rawPath = args?.path;
+  const rawPath = getReadArgPath(args);
   const output = getTextOutput(result, showImages);
   const lang = rawPath ? getLanguageFromPath(rawPath) : undefined;
   const renderedLines = lang ? highlightCode(replaceTabs(output), lang) : output.split('\n');
