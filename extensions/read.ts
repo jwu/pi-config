@@ -219,7 +219,8 @@ function formatReadResult(
   cwd: string,
   isError: boolean,
 ): string {
-  // Previous behavior: only compact resource/doc/skill reads hide their preview while collapsed.
+  // 原版 Pi read 在折叠状态下会隐藏所有非错误结果预览；这里保留旧行为：
+  // 只有 compact resource/docs/skill read 在折叠时隐藏预览，普通 read 仍显示前几行。
   if (!options.expanded && !isError && getCompactReadClassification(args, cwd)) {
     return '';
   }
@@ -287,6 +288,9 @@ export default function (pi: ExtensionAPI): void {
         return read.renderCall?.(args, theme, context) ?? new Text('', 0, 0);
       }
 
+      // Pi 内置的 compact read 渲染会把 skill 显示成 `[skill] <name>`，
+      // 但 resource/docs 显示为 `read resource` / `read docs`。这里保留其它
+      // 类型的内置行为，只把 skill 改成 `read skill`，让标题风格保持一致。
       const component =
         readContext.lastComponent instanceof Text ? readContext.lastComponent : new Text('', 0, 0);
       component.setText(formatSkillReadCall(classification, args as ReadArgsLike, theme));
