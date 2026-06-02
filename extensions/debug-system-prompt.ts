@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import type { ExtensionAPI, ExtensionCommandContext } from '@earendil-works/pi-coding-agent';
 
 interface CustomAgentSystemPromptBridge {
   getPrompt?: (basePrompt: string) => string | undefined;
@@ -22,6 +22,17 @@ const systemPromptBridge = globalThis as typeof globalThis & {
 
 function getSystemPrompt(basePrompt: string): string {
   return systemPromptBridge[SYSTEM_PROMPT_BRIDGE]?.getPrompt?.(basePrompt) ?? basePrompt;
+}
+
+function writeTerminalControl(sequence: string): void {
+  if (!process.stdout.isTTY) return;
+  process.stdout.write(sequence);
+}
+
+function getPiTerminalTitle(ctx: ExtensionCommandContext): string {
+  const cwdBasename = path.basename(ctx.sessionManager.getCwd());
+  const sessionName = ctx.sessionManager.getSessionName();
+  return sessionName ? `π - ${sessionName} - ${cwdBasename}` : `π - ${cwdBasename}`;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -59,6 +70,10 @@ export default function (pi: ExtensionAPI) {
 
           setImmediate(async () => {
             try {
+              // Save the terminal title before nvim/vim can change it. Ghostty honors
+              // xterm's title stack, and we also set Pi's title explicitly on return.
+              writeTerminalControl('\x1b[22;0t');
+
               // Release pi's TUI before handing the terminal to the external editor.
               tui.stop();
 
@@ -72,6 +87,11 @@ export default function (pi: ExtensionAPI) {
                 child.on('close', () => resolve());
               });
             } finally {
+              // Restore the saved terminal title, then explicitly restore Pi's own
+              // title as a fallback for terminals/editors that do not use the stack.
+              writeTerminalControl('\x1b[23;0t');
+              ctx.ui.setTitle(getPiTerminalTitle(ctx));
+
               // Restore pi's TUI and force a full repaint because editors commonly
               // use alternate screen / resize-sensitive terminal state.
               tui.start();
