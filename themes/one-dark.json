@@ -49,7 +49,7 @@
 
     "border": "bg2",
     "borderAccent": "blue",
-    "borderMuted": "bg_d",
+    "borderMuted": "grey",
 
     "success": "green",
     "error": "red",
