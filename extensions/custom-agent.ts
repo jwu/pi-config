@@ -30,8 +30,10 @@ interface DefaultModelSettingsSnapshot {
   exists: boolean;
   hasDefaultProvider: boolean;
   hasDefaultModel: boolean;
+  hasDefaultThinkingLevel: boolean;
   defaultProvider?: unknown;
   defaultModel?: unknown;
+  defaultThinkingLevel?: unknown;
 }
 
 interface AgentWarning {
@@ -298,8 +300,10 @@ async function snapshotDefaultModelSettings(): Promise<DefaultModelSettingsSnaps
     exists,
     hasDefaultProvider: Object.hasOwn(settings, 'defaultProvider'),
     hasDefaultModel: Object.hasOwn(settings, 'defaultModel'),
+    hasDefaultThinkingLevel: Object.hasOwn(settings, 'defaultThinkingLevel'),
     defaultProvider: settings.defaultProvider,
     defaultModel: settings.defaultModel,
+    defaultThinkingLevel: settings.defaultThinkingLevel,
   };
 }
 
@@ -311,6 +315,12 @@ async function restoreDefaultModelSettings(snapshot: DefaultModelSettingsSnapsho
 
   if (snapshot.hasDefaultModel) settings.defaultModel = snapshot.defaultModel;
   else delete settings.defaultModel;
+
+  if (snapshot.hasDefaultThinkingLevel) {
+    settings.defaultThinkingLevel = snapshot.defaultThinkingLevel;
+  } else {
+    delete settings.defaultThinkingLevel;
+  }
 
   if (!snapshot.exists && Object.keys(settings).length === 0) {
     try {
@@ -332,6 +342,18 @@ async function setModelWithoutSavingDefault(
   const snapshot = await snapshotDefaultModelSettings();
   try {
     return await pi.setModel(model);
+  } finally {
+    await restoreDefaultModelSettings(snapshot);
+  }
+}
+
+async function setThinkingLevelWithoutSavingDefault(
+  pi: ExtensionAPI,
+  level: ThinkingLevel,
+): Promise<void> {
+  const snapshot = await snapshotDefaultModelSettings();
+  try {
+    pi.setThinkingLevel(level);
   } finally {
     await restoreDefaultModelSettings(snapshot);
   }
@@ -473,7 +495,7 @@ export default function (pi: ExtensionAPI): void {
       }
     }
 
-    pi.setThinkingLevel(agent.thinking);
+    await setThinkingLevelWithoutSavingDefault(pi, agent.thinking);
 
     if (agent.tools.length > 0) {
       const allToolNames = new Set(pi.getAllTools().map((tool) => tool.name));
