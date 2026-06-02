@@ -1,12 +1,11 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
 type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'minimal' | 'xhigh';
 type SystemPromptMode = 'replace' | 'append';
-type AgentSource = 'bundled' | 'global' | 'project';
+type AgentSource = 'global' | 'project';
 
 interface AgentConfig {
   name: string;
@@ -25,6 +24,20 @@ interface AgentWarning {
   message: string;
 }
 
+interface CustomAgentSystemPromptBridge {
+  getPrompt?: (basePrompt: string) => string | undefined;
+}
+
+const SYSTEM_PROMPT_BRIDGE = Symbol.for('pi-config.custom-agent.systemPromptBridge');
+const systemPromptBridge = globalThis as typeof globalThis & {
+  [SYSTEM_PROMPT_BRIDGE]?: CustomAgentSystemPromptBridge;
+};
+
+function getSystemPromptBridge(): CustomAgentSystemPromptBridge {
+  systemPromptBridge[SYSTEM_PROMPT_BRIDGE] ??= {};
+  return systemPromptBridge[SYSTEM_PROMPT_BRIDGE];
+}
+
 const VALID_THINKING_LEVELS = new Set<ThinkingLevel>([
   'off',
   'minimal',
@@ -33,10 +46,6 @@ const VALID_THINKING_LEVELS = new Set<ThinkingLevel>([
   'high',
   'xhigh',
 ]);
-
-function bundledAgentsDir(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'agents');
-}
 
 function globalAgentsDir(): string {
   return path.join(os.homedir(), '.pi', 'agent', 'agents');
@@ -149,7 +158,6 @@ async function loadAgentDefinitions(cwd: string): Promise<{
   const byName = new Map<string, AgentConfig>();
 
   const dirs: Array<[string, AgentSource]> = [
-    [bundledAgentsDir(), 'bundled'],
     [globalAgentsDir(), 'global'],
     [projectAgentsDir(cwd), 'project'],
   ];
@@ -170,11 +178,21 @@ function modelParts(model: string): { provider: string; id: string } | undefined
 }
 
 function agentSummary(agent: AgentConfig): string {
-  const parts = [`${agent.name} (${agent.source})`];
-  if (agent.model) parts.push(`model:${agent.model}`);
-  if (agent.tools.length > 0) parts.push(`tools:${agent.tools.join(',')}`);
-  parts.push(`thinking:${agent.thinking}`);
-  return parts.join(' ');
+  const sourceLabel: Record<AgentSource, string> = {
+    global: 'g',
+    project: 'p',
+  };
+  return `${agent.name} [${sourceLabel[agent.source]}] activated`;
+}
+
+function buildAgentSystemPrompt(agent: AgentConfig, basePrompt: string): string {
+  const prompt = agent.prompt.trimEnd();
+  if (agent.systemPromptMode === 'replace') return prompt;
+
+  const trimmedBase = basePrompt.trimEnd();
+  if (!prompt) return trimmedBase;
+  if (trimmedBase.endsWith(prompt)) return basePrompt;
+  return `${trimmedBase}\n\n${prompt}`;
 }
 
 export default function (pi: ExtensionAPI): void {
@@ -185,10 +203,12 @@ export default function (pi: ExtensionAPI): void {
 
   let activeAgent: AgentConfig | undefined;
   let startupError: string | undefined;
+  const promptBridge = getSystemPromptBridge();
 
   pi.on('session_start', async (_event, ctx) => {
     activeAgent = undefined;
     startupError = undefined;
+    promptBridge.getPrompt = undefined;
 
     const agentName = pi.getFlag('agent');
     if (typeof agentName !== 'string' || !agentName) return;
@@ -211,6 +231,7 @@ export default function (pi: ExtensionAPI): void {
     }
 
     activeAgent = agent;
+    promptBridge.getPrompt = (basePrompt) => buildAgentSystemPrompt(agent, basePrompt);
 
     if (agent.model) {
       const parts = modelParts(agent.model);
@@ -245,7 +266,7 @@ export default function (pi: ExtensionAPI): void {
     }
 
     pi.setSessionName(`agent:${agent.name}`);
-    if (ctx.hasUI) ctx.ui.notify(`Activated ${agentSummary(agent)}`, 'info');
+    if (ctx.hasUI) ctx.ui.notify(agentSummary(agent), 'info');
   });
 
   pi.on('input', async () => {
@@ -256,10 +277,8 @@ export default function (pi: ExtensionAPI): void {
   pi.on('before_agent_start', async (event) => {
     if (!activeAgent) return;
 
-    const prompt = activeAgent.prompt.trimEnd();
     return {
-      systemPrompt:
-        activeAgent.systemPromptMode === 'append' ? `${event.systemPrompt}\n\n${prompt}` : prompt,
+      systemPrompt: buildAgentSystemPrompt(activeAgent, event.systemPrompt),
     };
   });
 }

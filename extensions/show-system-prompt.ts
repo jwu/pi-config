@@ -11,11 +11,24 @@ import * as os from "node:os";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
+interface CustomAgentSystemPromptBridge {
+  getPrompt?: (basePrompt: string) => string | undefined;
+}
+
+const SYSTEM_PROMPT_BRIDGE = Symbol.for("pi-config.custom-agent.systemPromptBridge");
+const systemPromptBridge = globalThis as typeof globalThis & {
+  [SYSTEM_PROMPT_BRIDGE]?: CustomAgentSystemPromptBridge;
+};
+
+function getSystemPrompt(basePrompt: string): string {
+  return systemPromptBridge[SYSTEM_PROMPT_BRIDGE]?.getPrompt?.(basePrompt) ?? basePrompt;
+}
+
 export default function (pi: ExtensionAPI) {
   pi.registerCommand("show-system-prompt", {
     description: "Preview the current system prompt in external editor",
     handler: async (_args, ctx) => {
-      const prompt = ctx.getSystemPrompt();
+      const prompt = getSystemPrompt(ctx.getSystemPrompt());
       if (!prompt) {
         ctx.ui.notify("No system prompt available. The agent hasn't started yet.", "info");
         return;
