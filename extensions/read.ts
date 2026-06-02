@@ -267,6 +267,21 @@ function formatReadResult(
   return text;
 }
 
+export const __testing = {
+  formatPathRelativeToCwdOrAbsolute,
+  formatReadLineRange,
+  formatReadResult,
+  formatSkillReadCall,
+  getCompactReadClassification,
+  getPiDocsClassification,
+  getReadArgPath,
+  getTextOutput,
+  sanitizeDisplayText,
+  stripAnsi,
+  toPosixPath,
+  trimTrailingEmptyLines,
+};
+
 export default function (pi: ExtensionAPI): void {
   const cwd = process.cwd();
   const read = createReadToolDefinition(cwd);

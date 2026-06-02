@@ -1,7 +1,13 @@
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import {
+  DefaultPackageManager,
+  SettingsManager,
+  getAgentDir,
+  type ExtensionAPI,
+  type ResolvedResource,
+} from '@earendil-works/pi-coding-agent';
 
 type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'minimal' | 'xhigh';
 type SystemPromptMode = 'replace' | 'append';
@@ -14,6 +20,7 @@ interface AgentConfig {
   skills: string[];
   model?: string;
   thinking: ThinkingLevel;
+  allowedAgents: string[];
   systemPromptMode: SystemPromptMode;
   prompt: string;
   source: AgentSource;
@@ -89,6 +96,31 @@ function skillFileCandidates(skillName: string, cwd: string): string[] {
   ];
 }
 
+async function resolvePackageSkillFiles(cwd: string): Promise<{
+  files: string[];
+  skippedPackages: string[];
+}> {
+  const skippedPackages: string[] = [];
+  const agentDir = getAgentDir();
+  const settingsManager = SettingsManager.create(cwd, agentDir);
+  const packageManager = new DefaultPackageManager({
+    cwd,
+    agentDir,
+    settingsManager,
+  });
+  const resolvedPaths = await packageManager.resolve(async (source) => {
+    skippedPackages.push(source);
+    return 'skip';
+  });
+
+  return {
+    files: resolvedPaths.skills
+      .filter((resource: ResolvedResource) => resource.enabled)
+      .map((resource: ResolvedResource) => resource.path),
+    skippedPackages,
+  };
+}
+
 function splitCsv(value: string | undefined): string[] {
   return (value ?? '')
     .split(',')
@@ -126,54 +158,105 @@ function parseSkillFrontmatter(
   content: string,
 ): { name?: string; description?: string } | undefined {
   const normalized = content.replace(/\r\n/g, '\n');
-  if (!normalized.startsWith('---\n')) return undefined;
-  const end = normalized.indexOf('\n---', 4);
+  if (!normalized.startsWith('---')) return undefined;
+  const end = normalized.indexOf('\n---', 3);
   if (end === -1) return undefined;
 
   const data: Record<string, string> = {};
-  for (const line of normalized.slice(4, end).split('\n')) {
+  const lines = normalized.slice(4, end).split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     const trimmed = line.trim();
     if (!trimmed || trimmed.startsWith('#')) continue;
+
+    if (data._currentBlockKey !== undefined && (line.startsWith('  ') || line.startsWith('\t'))) {
+      const current = data[data._currentBlockKey] ?? '';
+      data[data._currentBlockKey] = current ? `${current} ${trimmed}` : trimmed;
+      continue;
+    }
+    delete data._currentBlockKey;
 
     const separator = trimmed.indexOf(':');
     if (separator === -1) continue;
 
     const key = trimmed.slice(0, separator).trim();
-    const value = trimmed
-      .slice(separator + 1)
-      .trim()
-      .replace(/^["']|["']$/g, '');
+    let value = trimmed.slice(separator + 1).trim();
+    if (value === '|' || value === '>') {
+      data._currentBlockKey = key;
+      data[key] = '';
+      continue;
+    }
+
+    value = value.replace(/^["']|["']$/g, '');
     if (key) data[key] = value;
   }
+  delete data._currentBlockKey;
 
-  if (!data.description) return undefined;
-  return { name: data.name, description: data.description };
+  if (!data.description?.trim()) return undefined;
+  return { name: data.name, description: data.description.trim() };
+}
+
+async function readSkillFromFile(
+  filePath: string,
+  requestedName: string,
+  requireNameMatch: boolean,
+): Promise<ResolvedSkill | undefined> {
+  const content = await fs.readFile(filePath, 'utf8');
+  const frontmatter = parseSkillFrontmatter(content);
+  if (!frontmatter) return undefined;
+
+  const fileSkillName = frontmatter.name || path.basename(path.dirname(filePath));
+  const markdownName = path.basename(filePath, '.md');
+  if (requireNameMatch && fileSkillName !== requestedName && markdownName !== requestedName) {
+    return undefined;
+  }
+
+  return {
+    name: fileSkillName || requestedName,
+    description: frontmatter.description || '',
+    location: filePath,
+  };
 }
 
 async function resolveSkills(
   skillNames: string[],
   cwd: string,
-): Promise<{ resolved: ResolvedSkill[]; missing: string[] }> {
+): Promise<{ resolved: ResolvedSkill[]; missing: string[]; skippedPackages: string[] }> {
   const resolved: ResolvedSkill[] = [];
   const missing: string[] = [];
+  const pendingPackageResolution: string[] = [];
 
   for (const skillName of skillNames) {
+    const trimmed = skillName.trim();
+    if (!trimmed) continue;
+
     let skill: ResolvedSkill | undefined;
-
-    for (const filePath of skillFileCandidates(skillName, cwd)) {
+    for (const filePath of skillFileCandidates(trimmed, cwd)) {
       try {
-        const content = await fs.readFile(filePath, 'utf8');
-        const frontmatter = parseSkillFrontmatter(content);
-        if (!frontmatter) continue;
-
-        skill = {
-          name: frontmatter.name || skillName,
-          description: frontmatter.description || '',
-          location: filePath,
-        };
-        break;
+        skill = await readSkillFromFile(filePath, trimmed, false);
+        if (skill) break;
       } catch {
         // Try the next candidate path.
+      }
+    }
+
+    if (skill) resolved.push(skill);
+    else pendingPackageResolution.push(trimmed);
+  }
+
+  const packageSkills =
+    pendingPackageResolution.length > 0
+      ? await resolvePackageSkillFiles(cwd)
+      : { files: [], skippedPackages: [] };
+
+  for (const skillName of pendingPackageResolution) {
+    let skill: ResolvedSkill | undefined;
+    for (const filePath of packageSkills.files) {
+      try {
+        skill = await readSkillFromFile(filePath, skillName, true);
+        if (skill) break;
+      } catch {
+        // Try the next package skill file.
       }
     }
 
@@ -181,7 +264,7 @@ async function resolveSkills(
     else missing.push(skillName);
   }
 
-  return { resolved, missing };
+  return { resolved, missing, skippedPackages: packageSkills.skippedPackages };
 }
 
 function parseAgent(content: string, filePath: string, source: AgentSource): AgentConfig {
@@ -205,6 +288,7 @@ function parseAgent(content: string, filePath: string, source: AgentSource): Age
     skills: splitCsv(data.skills),
     model: data.model || undefined,
     thinking,
+    allowedAgents: splitCsv(data.allowedAgents),
     systemPromptMode,
     prompt: body,
     source,
@@ -376,6 +460,13 @@ function escapeXml(value: string): string {
     .replace(/'/g, '&apos;');
 }
 
+function formatAvailableSubagentsBlock(agentNames: string[]): string | undefined {
+  const names = [...new Set(agentNames.map((name) => name.trim()).filter(Boolean))].sort();
+  if (names.length === 0) return undefined;
+
+  return ['Available subagents:', ...names.map((name) => `- ${name}`)].join('\n');
+}
+
 function formatSkillsForPrompt(skills: ResolvedSkill[]): string {
   if (skills.length === 0) return '';
 
@@ -410,16 +501,36 @@ function stripBuiltInSkills(prompt: string): string {
     .trimEnd();
 }
 
-function agentPromptWithSkills(agent: AgentConfig, skills: ResolvedSkill[]): string {
-  return `${agent.prompt.trimEnd()}${formatSkillsForPrompt(skills)}`.trimEnd();
+function agentPromptWithInjections(
+  agent: AgentConfig,
+  skills: ResolvedSkill[],
+  availableSubagents: string[],
+  basePrompt: string,
+): string {
+  let prompt = agent.prompt.trimEnd();
+
+  if (agent.tools.includes('subagent') || agent.allowedAgents.length > 0) {
+    const availableSubagentsBlock = formatAvailableSubagentsBlock(availableSubagents);
+    const alreadyInPrompt = availableSubagentsBlock && prompt.includes(availableSubagentsBlock);
+    const alreadyInBase =
+      agent.systemPromptMode === 'append' &&
+      availableSubagentsBlock &&
+      basePrompt.includes(availableSubagentsBlock);
+    if (availableSubagentsBlock && !alreadyInPrompt && !alreadyInBase) {
+      prompt = `${prompt}\n\n${availableSubagentsBlock}`;
+    }
+  }
+
+  return `${prompt}${formatSkillsForPrompt(skills)}`.trimEnd();
 }
 
 function buildAgentSystemPrompt(
   agent: AgentConfig,
   basePrompt: string,
   skills: ResolvedSkill[],
+  availableSubagents: string[],
 ): string {
-  const prompt = agentPromptWithSkills(agent, skills);
+  const prompt = agentPromptWithInjections(agent, skills, availableSubagents, basePrompt);
   if (agent.systemPromptMode === 'replace') return prompt;
 
   const trimmedBase = stripBuiltInSkills(basePrompt);
@@ -427,6 +538,13 @@ function buildAgentSystemPrompt(
   if (trimmedBase.endsWith(prompt)) return basePrompt;
   return `${trimmedBase}\n\n${prompt}`;
 }
+
+export const __testing = {
+  buildAgentSystemPrompt,
+  formatAvailableSubagentsBlock,
+  parseAgent,
+  resolveSkills,
+};
 
 export default function (pi: ExtensionAPI): void {
   pi.registerFlag('agent', {
@@ -436,12 +554,14 @@ export default function (pi: ExtensionAPI): void {
 
   let activeAgent: AgentConfig | undefined;
   let activeSkills: ResolvedSkill[] = [];
+  let activeAvailableSubagents: string[] = [];
   let startupError: string | undefined;
   const promptBridge = getSystemPromptBridge();
 
   pi.on('session_start', async (_event, ctx) => {
     activeAgent = undefined;
     activeSkills = [];
+    activeAvailableSubagents = [];
     startupError = undefined;
     promptBridge.getPrompt = undefined;
 
@@ -466,9 +586,16 @@ export default function (pi: ExtensionAPI): void {
     }
 
     activeAgent = agent;
+    activeAvailableSubagents =
+      agent.allowedAgents.length > 0
+        ? agent.allowedAgents
+        : agents.map((candidate) => candidate.name);
     if (agent.skills.length > 0) {
-      const { resolved, missing } = await resolveSkills(agent.skills, ctx.cwd);
+      const { resolved, missing, skippedPackages } = await resolveSkills(agent.skills, ctx.cwd);
       activeSkills = resolved;
+      for (const source of skippedPackages) {
+        console.warn(`[custom-agent] skipped package during skill resolution: ${source}`);
+      }
       for (const skillName of missing) {
         const message = `Agent "${agent.name}": skill not found: ${skillName}`;
         console.warn(`[custom-agent] ${message}`);
@@ -476,7 +603,7 @@ export default function (pi: ExtensionAPI): void {
       }
     }
     promptBridge.getPrompt = (basePrompt) =>
-      buildAgentSystemPrompt(agent, basePrompt, activeSkills);
+      buildAgentSystemPrompt(agent, basePrompt, activeSkills, activeAvailableSubagents);
 
     if (agent.model) {
       const parts = modelParts(agent.model);
@@ -523,7 +650,12 @@ export default function (pi: ExtensionAPI): void {
     if (!activeAgent) return;
 
     return {
-      systemPrompt: buildAgentSystemPrompt(activeAgent, event.systemPrompt, activeSkills),
+      systemPrompt: buildAgentSystemPrompt(
+        activeAgent,
+        event.systemPrompt,
+        activeSkills,
+        activeAvailableSubagents,
+      ),
     };
   });
 }

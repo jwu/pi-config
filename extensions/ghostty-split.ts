@@ -13,14 +13,15 @@ function appleScriptEscape(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
-// Build and execute AppleScript to split and run pi.
-// Uses initialInput instead of command so the shell runs as a normal login
-// shell (loads .bashrc/.zshrc, which initializes nvm and puts pi on PATH).
-function ghosttySplit(direction: 'right' | 'down', sessionFile: string, cwd: string): void {
+function buildGhosttySplitScript(
+  direction: 'right' | 'down',
+  sessionFile: string,
+  cwd: string,
+): string {
   const escapedSessionFile = appleScriptEscape(sessionFile);
   const escapedCwd = appleScriptEscape(cwd);
 
-  const script = `
+  return `
 tell application "Ghostty"
   set cfg to new surface configuration
   set initial working directory of cfg to "${escapedCwd}"
@@ -28,9 +29,24 @@ tell application "Ghostty"
   split (focused terminal of selected tab of front window) direction ${direction} with configuration cfg
 end tell
 `.trim();
-
-  execSync('osascript', { input: script, encoding: 'utf-8', stdio: 'pipe' });
 }
+
+// Build and execute AppleScript to split and run pi.
+// Uses initialInput instead of command so the shell runs as a normal login
+// shell (loads .bashrc/.zshrc, which initializes nvm and puts pi on PATH).
+function ghosttySplit(direction: 'right' | 'down', sessionFile: string, cwd: string): void {
+  execSync('osascript', {
+    input: buildGhosttySplitScript(direction, sessionFile, cwd),
+    encoding: 'utf-8',
+    stdio: 'pipe',
+  });
+}
+
+export const __testing = {
+  appleScriptEscape,
+  buildGhosttySplitScript,
+  isGhosttyOnMac,
+};
 
 export default function (pi: ExtensionAPI) {
   // /split: new_split:down

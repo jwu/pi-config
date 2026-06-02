@@ -35,6 +35,12 @@ function getPiTerminalTitle(ctx: ExtensionCommandContext): string {
   return sessionName ? `π - ${sessionName} - ${cwdBasename}` : `π - ${cwdBasename}`;
 }
 
+export const __testing = {
+  getPiTerminalTitle,
+  getSystemPrompt,
+  writeTerminalControl,
+};
+
 export default function (pi: ExtensionAPI) {
   pi.registerCommand('debug-system-prompt', {
     description: 'Preview the current system prompt in external editor',

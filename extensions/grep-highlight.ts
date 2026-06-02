@@ -139,6 +139,18 @@ function renderTruncationWarning(details: GrepToolDetails | undefined, theme: Th
   return `\n${theme.fg('warning', `[Truncated: ${warnings.join(', ')}]`)}`;
 }
 
+export const __testing = {
+  getTextOutput,
+  invalidArgText,
+  renderGrepCall,
+  renderGrepLine,
+  renderTruncationWarning,
+  sanitizeDisplayText,
+  shortenPath,
+  stripAnsi,
+  stringArg,
+};
+
 export default function (pi: ExtensionAPI): void {
   const cwd = process.cwd();
   const grep = createGrepToolDefinition(cwd);
