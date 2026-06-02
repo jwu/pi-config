@@ -1,21 +1,21 @@
 /**
- * /show-system-prompt command - preview the current system prompt
+ * /debug-system-prompt command - preview the current system prompt
  *
  * Opens the current system prompt in the user's external editor ($EDITOR / $VISUAL).
  * The editor session is read-only for preview; changes are discarded.
  */
 
-import { spawn } from "node:child_process";
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { spawn } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
 interface CustomAgentSystemPromptBridge {
   getPrompt?: (basePrompt: string) => string | undefined;
 }
 
-const SYSTEM_PROMPT_BRIDGE = Symbol.for("pi-config.custom-agent.systemPromptBridge");
+const SYSTEM_PROMPT_BRIDGE = Symbol.for('pi-config.custom-agent.systemPromptBridge');
 const systemPromptBridge = globalThis as typeof globalThis & {
   [SYSTEM_PROMPT_BRIDGE]?: CustomAgentSystemPromptBridge;
 };
@@ -25,35 +25,35 @@ function getSystemPrompt(basePrompt: string): string {
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.registerCommand("show-system-prompt", {
-    description: "Preview the current system prompt in external editor",
+  pi.registerCommand('debug-system-prompt', {
+    description: 'Preview the current system prompt in external editor',
     handler: async (_args, ctx) => {
       const prompt = getSystemPrompt(ctx.getSystemPrompt());
       if (!prompt) {
-        ctx.ui.notify("No system prompt available. The agent hasn't started yet.", "info");
+        ctx.ui.notify("No system prompt available. The agent hasn't started yet.", 'info');
         return;
       }
 
       const editorCmd = process.env.VISUAL || process.env.EDITOR;
       if (!editorCmd) {
-        ctx.ui.notify("No external editor configured ($VISUAL or $EDITOR not set)", "error");
+        ctx.ui.notify('No external editor configured ($VISUAL or $EDITOR not set)', 'error');
         return;
       }
 
-      const lines = prompt.split("\n").length;
+      const lines = prompt.split('\n').length;
       const tmpFile = path.join(os.tmpdir(), `pi-system-prompt-${Date.now()}.md`);
       const header = `System Prompt Preview — ${lines} lines, ${prompt.length} chars (read-only)\n\n`;
-      fs.writeFileSync(tmpFile, header + prompt, "utf-8");
+      fs.writeFileSync(tmpFile, header + prompt, 'utf-8');
 
       try {
         if (!ctx.hasUI) {
-          ctx.ui.notify("show-system-prompt requires interactive mode", "error");
+          ctx.ui.notify('debug-system-prompt requires interactive mode', 'error');
           return;
         }
 
         await ctx.ui.custom<void>((tui, _theme, _keybindings, done) => {
           const component = {
-            render: () => ["Opening system prompt in external editor..."],
+            render: () => ['Opening system prompt in external editor...'],
             invalidate: () => {},
           };
 
@@ -62,14 +62,14 @@ export default function (pi: ExtensionAPI) {
               // Release pi's TUI before handing the terminal to the external editor.
               tui.stop();
 
-              const [editor, ...editorArgs] = editorCmd.split(" ");
+              const [editor, ...editorArgs] = editorCmd.split(' ');
               await new Promise<void>((resolve) => {
                 const child = spawn(editor, [...editorArgs, tmpFile], {
-                  stdio: "inherit",
-                  shell: process.platform === "win32",
+                  stdio: 'inherit',
+                  shell: process.platform === 'win32',
                 });
-                child.on("error", () => resolve());
-                child.on("close", () => resolve());
+                child.on('error', () => resolve());
+                child.on('close', () => resolve());
               });
             } finally {
               // Restore pi's TUI and force a full repaint because editors commonly

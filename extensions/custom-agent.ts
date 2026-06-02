@@ -11,12 +11,27 @@ interface AgentConfig {
   name: string;
   description?: string;
   tools: string[];
+  skills: string[];
   model?: string;
   thinking: ThinkingLevel;
   systemPromptMode: SystemPromptMode;
   prompt: string;
   source: AgentSource;
   filePath: string;
+}
+
+interface ResolvedSkill {
+  name: string;
+  description: string;
+  location: string;
+}
+
+interface DefaultModelSettingsSnapshot {
+  exists: boolean;
+  hasDefaultProvider: boolean;
+  hasDefaultModel: boolean;
+  defaultProvider?: unknown;
+  defaultModel?: unknown;
 }
 
 interface AgentWarning {
@@ -55,6 +70,23 @@ function projectAgentsDir(cwd: string): string {
   return path.join(cwd, '.pi', 'agents');
 }
 
+function globalSkillsDir(): string {
+  return path.join(os.homedir(), '.pi', 'agent', 'skills');
+}
+
+function globalSettingsPath(): string {
+  return path.join(os.homedir(), '.pi', 'agent', 'settings.json');
+}
+
+function skillFileCandidates(skillName: string, cwd: string): string[] {
+  return [
+    path.join(cwd, '.agents', 'skills', skillName, 'SKILL.md'),
+    path.join(cwd, '.pi', 'skills', skillName, 'SKILL.md'),
+    path.join(globalSkillsDir(), skillName, 'SKILL.md'),
+    path.join(os.homedir(), '.agents', 'skills', skillName, 'SKILL.md'),
+  ];
+}
+
 function splitCsv(value: string | undefined): string[] {
   return (value ?? '')
     .split(',')
@@ -88,6 +120,68 @@ function parseFrontmatter(content: string): { data: Record<string, string>; body
   return { data, body };
 }
 
+function parseSkillFrontmatter(
+  content: string,
+): { name?: string; description?: string } | undefined {
+  const normalized = content.replace(/\r\n/g, '\n');
+  if (!normalized.startsWith('---\n')) return undefined;
+  const end = normalized.indexOf('\n---', 4);
+  if (end === -1) return undefined;
+
+  const data: Record<string, string> = {};
+  for (const line of normalized.slice(4, end).split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    const separator = trimmed.indexOf(':');
+    if (separator === -1) continue;
+
+    const key = trimmed.slice(0, separator).trim();
+    const value = trimmed
+      .slice(separator + 1)
+      .trim()
+      .replace(/^["']|["']$/g, '');
+    if (key) data[key] = value;
+  }
+
+  if (!data.description) return undefined;
+  return { name: data.name, description: data.description };
+}
+
+async function resolveSkills(
+  skillNames: string[],
+  cwd: string,
+): Promise<{ resolved: ResolvedSkill[]; missing: string[] }> {
+  const resolved: ResolvedSkill[] = [];
+  const missing: string[] = [];
+
+  for (const skillName of skillNames) {
+    let skill: ResolvedSkill | undefined;
+
+    for (const filePath of skillFileCandidates(skillName, cwd)) {
+      try {
+        const content = await fs.readFile(filePath, 'utf8');
+        const frontmatter = parseSkillFrontmatter(content);
+        if (!frontmatter) continue;
+
+        skill = {
+          name: frontmatter.name || skillName,
+          description: frontmatter.description || '',
+          location: filePath,
+        };
+        break;
+      } catch {
+        // Try the next candidate path.
+      }
+    }
+
+    if (skill) resolved.push(skill);
+    else missing.push(skillName);
+  }
+
+  return { resolved, missing };
+}
+
 function parseAgent(content: string, filePath: string, source: AgentSource): AgentConfig {
   const { data, body } = parseFrontmatter(content);
   if (!data.name) throw new Error('missing required field: name');
@@ -106,6 +200,7 @@ function parseAgent(content: string, filePath: string, source: AgentSource): Age
     name: data.name,
     description: data.description || undefined,
     tools: splitCsv(data.tools),
+    skills: splitCsv(data.skills),
     model: data.model || undefined,
     thinking,
     systemPromptMode,
@@ -177,6 +272,71 @@ function modelParts(model: string): { provider: string; id: string } | undefined
   return { provider: model.slice(0, slash), id: model.slice(slash + 1) };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+async function readGlobalSettings(): Promise<Record<string, unknown>> {
+  try {
+    const parsed = JSON.parse(await fs.readFile(globalSettingsPath(), 'utf8'));
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+async function snapshotDefaultModelSettings(): Promise<DefaultModelSettingsSnapshot> {
+  let exists = true;
+  try {
+    await fs.access(globalSettingsPath());
+  } catch {
+    exists = false;
+  }
+
+  const settings = await readGlobalSettings();
+  return {
+    exists,
+    hasDefaultProvider: Object.hasOwn(settings, 'defaultProvider'),
+    hasDefaultModel: Object.hasOwn(settings, 'defaultModel'),
+    defaultProvider: settings.defaultProvider,
+    defaultModel: settings.defaultModel,
+  };
+}
+
+async function restoreDefaultModelSettings(snapshot: DefaultModelSettingsSnapshot): Promise<void> {
+  const settings = await readGlobalSettings();
+
+  if (snapshot.hasDefaultProvider) settings.defaultProvider = snapshot.defaultProvider;
+  else delete settings.defaultProvider;
+
+  if (snapshot.hasDefaultModel) settings.defaultModel = snapshot.defaultModel;
+  else delete settings.defaultModel;
+
+  if (!snapshot.exists && Object.keys(settings).length === 0) {
+    try {
+      await fs.unlink(globalSettingsPath());
+    } catch {
+      // Ignore cleanup errors.
+    }
+    return;
+  }
+
+  await fs.mkdir(path.dirname(globalSettingsPath()), { recursive: true });
+  await fs.writeFile(globalSettingsPath(), `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+}
+
+async function setModelWithoutSavingDefault(
+  pi: ExtensionAPI,
+  model: Parameters<ExtensionAPI['setModel']>[0],
+): Promise<boolean> {
+  const snapshot = await snapshotDefaultModelSettings();
+  try {
+    return await pi.setModel(model);
+  } finally {
+    await restoreDefaultModelSettings(snapshot);
+  }
+}
+
 function agentSummary(agent: AgentConfig): string {
   const sourceLabel: Record<AgentSource, string> = {
     global: 'g',
@@ -185,11 +345,62 @@ function agentSummary(agent: AgentConfig): string {
   return `${agent.name} [${sourceLabel[agent.source]}] activated`;
 }
 
-function buildAgentSystemPrompt(agent: AgentConfig, basePrompt: string): string {
-  const prompt = agent.prompt.trimEnd();
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function formatSkillsForPrompt(skills: ResolvedSkill[]): string {
+  if (skills.length === 0) return '';
+
+  const lines = [
+    '',
+    '',
+    'The following skills provide specialized instructions for specific tasks.',
+    "Use the read tool to load a skill's file when the task matches its description.",
+    'When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.',
+    '',
+    '<available_skills>',
+  ];
+
+  for (const skill of skills) {
+    lines.push('  <skill>');
+    lines.push(`    <name>${escapeXml(skill.name)}</name>`);
+    lines.push(`    <description>${escapeXml(skill.description)}</description>`);
+    lines.push(`    <location>${escapeXml(skill.location)}</location>`);
+    lines.push('  </skill>');
+  }
+
+  lines.push('</available_skills>');
+  return lines.join('\n');
+}
+
+function stripBuiltInSkills(prompt: string): string {
+  return prompt
+    .replace(
+      /\n*The following skills provide specialized instructions for specific tasks\.[\s\S]*?<\/available_skills>/g,
+      '',
+    )
+    .trimEnd();
+}
+
+function agentPromptWithSkills(agent: AgentConfig, skills: ResolvedSkill[]): string {
+  return `${agent.prompt.trimEnd()}${formatSkillsForPrompt(skills)}`.trimEnd();
+}
+
+function buildAgentSystemPrompt(
+  agent: AgentConfig,
+  basePrompt: string,
+  skills: ResolvedSkill[],
+): string {
+  const prompt = agentPromptWithSkills(agent, skills);
   if (agent.systemPromptMode === 'replace') return prompt;
 
-  const trimmedBase = basePrompt.trimEnd();
+  const trimmedBase = stripBuiltInSkills(basePrompt);
   if (!prompt) return trimmedBase;
   if (trimmedBase.endsWith(prompt)) return basePrompt;
   return `${trimmedBase}\n\n${prompt}`;
@@ -202,11 +413,13 @@ export default function (pi: ExtensionAPI): void {
   });
 
   let activeAgent: AgentConfig | undefined;
+  let activeSkills: ResolvedSkill[] = [];
   let startupError: string | undefined;
   const promptBridge = getSystemPromptBridge();
 
   pi.on('session_start', async (_event, ctx) => {
     activeAgent = undefined;
+    activeSkills = [];
     startupError = undefined;
     promptBridge.getPrompt = undefined;
 
@@ -231,7 +444,17 @@ export default function (pi: ExtensionAPI): void {
     }
 
     activeAgent = agent;
-    promptBridge.getPrompt = (basePrompt) => buildAgentSystemPrompt(agent, basePrompt);
+    if (agent.skills.length > 0) {
+      const { resolved, missing } = await resolveSkills(agent.skills, ctx.cwd);
+      activeSkills = resolved;
+      for (const skillName of missing) {
+        const message = `Agent "${agent.name}": skill not found: ${skillName}`;
+        console.warn(`[custom-agent] ${message}`);
+        if (ctx.hasUI) ctx.ui.notify(message, 'warning');
+      }
+    }
+    promptBridge.getPrompt = (basePrompt) =>
+      buildAgentSystemPrompt(agent, basePrompt, activeSkills);
 
     if (agent.model) {
       const parts = modelParts(agent.model);
@@ -241,7 +464,7 @@ export default function (pi: ExtensionAPI): void {
         console.warn(`[custom-agent] ${message}`);
         if (ctx.hasUI) ctx.ui.notify(message, 'warning');
       } else {
-        const ok = await pi.setModel(model);
+        const ok = await setModelWithoutSavingDefault(pi, model);
         if (!ok) {
           const message = `Agent "${agent.name}": no auth configured for ${agent.model}`;
           console.warn(`[custom-agent] ${message}`);
@@ -278,7 +501,7 @@ export default function (pi: ExtensionAPI): void {
     if (!activeAgent) return;
 
     return {
-      systemPrompt: buildAgentSystemPrompt(activeAgent, event.systemPrompt),
+      systemPrompt: buildAgentSystemPrompt(activeAgent, event.systemPrompt, activeSkills),
     };
   });
 }
