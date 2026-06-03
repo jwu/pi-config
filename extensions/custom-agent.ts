@@ -11,7 +11,7 @@ import {
 
 type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'minimal' | 'xhigh';
 type SystemPromptMode = 'replace' | 'append';
-type AgentSource = 'global' | 'project';
+type AgentSource = 'global' | 'project' | 'path';
 
 /**
  * Keep this close to ~/dev/jwu/pi-subagents/extensions/agent-loader.ts.
@@ -96,6 +96,24 @@ function projectAgentsDir(cwd: string): string {
   return path.join(cwd, '.pi', 'agents');
 }
 
+function expandHomePath(filePath: string): string {
+  if (filePath === '~') return os.homedir();
+  if (filePath.startsWith('~/') || filePath.startsWith('~\\')) {
+    return path.join(os.homedir(), filePath.slice(2));
+  }
+  return filePath;
+}
+
+function resolveAgentFilePath(selector: string, cwd: string): string {
+  const expanded = expandHomePath(selector.trim());
+  return path.resolve(cwd, expanded);
+}
+
+function isAgentPathSelector(selector: string): boolean {
+  const trimmed = selector.trim();
+  return trimmed.toLowerCase().endsWith('.md') || /[\\/]/.test(trimmed);
+}
+
 function globalSkillsDir(): string {
   return path.join(os.homedir(), '.pi', 'agent', 'skills');
 }
@@ -162,9 +180,7 @@ function parseFrontmatter(content: string): { data: Record<string, string>; body
   return { data, body };
 }
 
-function parseSkillFrontmatter(
-  content: string,
-): { name: string; description: string } | undefined {
+function parseSkillFrontmatter(content: string): { name: string; description: string } | undefined {
   const normalized = content.replace(/\r\n/g, '\n');
   if (!normalized.startsWith('---')) return undefined;
   const end = normalized.indexOf('\n---', 3);
@@ -479,6 +495,15 @@ async function loadAgentDefinitions(cwd: string): Promise<{
   return { agents: [...byName.values()], warnings };
 }
 
+async function loadAgentFromPath(selector: string, cwd: string): Promise<AgentConfig> {
+  const filePath = resolveAgentFilePath(selector, cwd);
+  if (!filePath.toLowerCase().endsWith('.md')) {
+    throw new Error('agent path must point to a .md file');
+  }
+
+  return parseAgent(await fs.readFile(filePath, 'utf8'), filePath, 'path');
+}
+
 function modelParts(model: string): { provider: string; id: string } | undefined {
   const slash = model.indexOf('/');
   if (slash <= 0 || slash === model.length - 1) return undefined;
@@ -570,10 +595,7 @@ async function setThinkingLevelWithoutSavingDefault(
   }
 }
 
-function availableSubagentsForAgent(
-  agent: AgentConfig,
-  allAgentNames: string[],
-): string[] {
+function availableSubagentsForAgent(agent: AgentConfig, allAgentNames: string[]): string[] {
   if ((agent.allowedAgents?.length ?? 0) > 0) {
     const allowed = new Set(agent.allowedAgents);
     return [...new Set(allAgentNames.filter((name) => allowed.has(name)))].sort();
@@ -581,12 +603,27 @@ function availableSubagentsForAgent(
   return [...new Set(allAgentNames)].sort();
 }
 
-function agentSummary(agent: AgentConfig): string {
-  const sourceLabel: Record<AgentSource, string> = {
+function displayAgentPath(filePath: string, cwd: string): string {
+  const relative = path.relative(cwd, filePath);
+  if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) return relative;
+
+  const home = os.homedir();
+  const homeRelative = path.relative(home, filePath);
+  if (homeRelative && !homeRelative.startsWith('..') && !path.isAbsolute(homeRelative)) {
+    return path.join('~', homeRelative);
+  }
+
+  return filePath;
+}
+
+function agentSummary(agent: AgentConfig, cwd: string): string {
+  const sourceLabel: Record<Exclude<AgentSource, 'path'>, string> = {
     global: 'g',
-    project: 'p',
+    project: 'l',
   };
-  return `${agent.name} [${sourceLabel[agent.source]}] activated`;
+  const label =
+    agent.source === 'path' ? displayAgentPath(agent.filePath, cwd) : sourceLabel[agent.source];
+  return `${agent.name} [${label}] activated`;
 }
 
 function escapeXml(value: string): string {
@@ -766,14 +803,19 @@ function buildAgentSystemPrompt(
 
 export const __testing = {
   buildAgentSystemPrompt,
+  agentSummary,
   formatAvailableSubagentsBlock,
+  isAgentPathSelector,
+  loadAgentFromPath,
   parseAgent,
+  resolveAgentFilePath,
   resolveSkills,
 };
 
 export default function (pi: ExtensionAPI): void {
   pi.registerFlag('agent', {
-    description: 'Run this pi session as a named Markdown agent from agents/*.md',
+    description:
+      'Run this pi session as a named Markdown agent from agents/*.md, or from a .md path',
     type: 'string',
   });
 
@@ -794,21 +836,38 @@ export default function (pi: ExtensionAPI): void {
     startupError = undefined;
     promptBridge.getPrompt = undefined;
 
-    const agentName = pi.getFlag('agent');
-    if (typeof agentName !== 'string' || !agentName) return;
+    const agentSelector = pi.getFlag('agent');
+    if (typeof agentSelector !== 'string' || !agentSelector) return;
 
     const { agents, warnings } = await loadAgentDefinitions(ctx.cwd);
     for (const warning of warnings) {
       console.warn(`[custom-agent] skipped ${warning.filePath}: ${warning.message}`);
     }
 
-    const agent = agents.find((candidate) => candidate.name === agentName);
+    let agent: AgentConfig | undefined;
+    let availableAgents = agents;
+    if (isAgentPathSelector(agentSelector)) {
+      try {
+        agent = await loadAgentFromPath(agentSelector, ctx.cwd);
+        const byName = new Map(agents.map((candidate) => [candidate.name, candidate]));
+        byName.set(agent.name, agent);
+        availableAgents = [...byName.values()];
+      } catch (error) {
+        startupError = `Agent file could not be loaded: ${agentSelector}: ${error instanceof Error ? error.message : String(error)}`;
+        console.error(`[custom-agent] ${startupError}`);
+        if (ctx.hasUI) ctx.ui.notify(startupError, 'error');
+        return;
+      }
+    } else {
+      agent = agents.find((candidate) => candidate.name === agentSelector);
+    }
+
     if (!agent) {
       const available = agents
         .map((candidate) => `${candidate.name} (${candidate.source})`)
         .sort()
         .join(', ');
-      startupError = `Unknown agent: ${agentName}. Available agents: ${available || 'none'}.`;
+      startupError = `Unknown agent: ${agentSelector}. Available agents: ${available || 'none'}.`;
       console.error(`[custom-agent] ${startupError}`);
       if (ctx.hasUI) ctx.ui.notify(startupError, 'error');
       return;
@@ -817,13 +876,15 @@ export default function (pi: ExtensionAPI): void {
     activeAgent = agent;
     activeAvailableSubagents = availableSubagentsForAgent(
       agent,
-      agents.map((candidate) => candidate.name),
+      availableAgents.map((candidate) => candidate.name),
     );
     if ((agent.skills?.length ?? 0) > 0) {
-      const { resolved, missing, skippedPackages, warnings: skillWarnings } = await resolveSkills(
-        agent.skills!,
-        ctx.cwd,
-      );
+      const {
+        resolved,
+        missing,
+        skippedPackages,
+        warnings: skillWarnings,
+      } = await resolveSkills(agent.skills!, ctx.cwd);
       activeSkills = resolved;
       for (const source of skippedPackages) {
         console.warn(`[custom-agent] skipped package during skill resolution: ${source}`);
@@ -883,7 +944,7 @@ export default function (pi: ExtensionAPI): void {
     }
 
     pi.setSessionName(`agent:${agent.name}`);
-    if (ctx.hasUI) ctx.ui.notify(agentSummary(agent), 'info');
+    if (ctx.hasUI) ctx.ui.notify(agentSummary(agent, ctx.cwd), 'info');
   });
 
   pi.on('input', async () => {

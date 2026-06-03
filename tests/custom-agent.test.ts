@@ -4,8 +4,16 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { __testing } from '../extensions/custom-agent.ts';
 
-const { buildAgentSystemPrompt, formatAvailableSubagentsBlock, parseAgent, resolveSkills } =
-  __testing;
+const {
+  agentSummary,
+  buildAgentSystemPrompt,
+  formatAvailableSubagentsBlock,
+  isAgentPathSelector,
+  loadAgentFromPath,
+  parseAgent,
+  resolveAgentFilePath,
+  resolveSkills,
+} = __testing;
 
 describe('custom-agent prompt injections', () => {
   test('formats available subagents as a sorted standalone block', () => {
@@ -113,11 +121,97 @@ Replace instructions.
       injectToolGuidelines: true,
     });
 
-    expect(prompt).toContain('Available tools:\n- read: Read the contents of a file.\n- bash: Execute a bash command.');
-    expect(prompt).toContain('Guidelines:\n- Use bash for file operations like ls, rg, find\n- Prefer read over cat');
+    expect(prompt).toContain(
+      'Available tools:\n- read: Read the contents of a file.\n- bash: Execute a bash command.',
+    );
+    expect(prompt).toContain(
+      'Guidelines:\n- Use bash for file operations like ls, rg, find\n- Prefer read over cat',
+    );
     expect(prompt).toContain('Available subagents:\n- scout');
     expect(prompt.indexOf('Available tools:')).toBeLessThan(prompt.indexOf('Guidelines:'));
     expect(prompt.indexOf('Guidelines:')).toBeLessThan(prompt.indexOf('Available subagents:'));
+  });
+});
+
+describe('custom-agent agent selection', () => {
+  test('recognizes Markdown file paths as agent selectors', () => {
+    expect(isAgentPathSelector('agents/reviewer.md')).toBe(true);
+    expect(isAgentPathSelector('reviewer.md')).toBe(true);
+    expect(isAgentPathSelector('reviewer')).toBe(false);
+  });
+
+  test('loads an agent from a relative Markdown path', async () => {
+    const cwd = await fs.mkdtemp(path.join(os.tmpdir(), 'custom-agent-path-'));
+    const filePath = path.join(cwd, 'agents', 'path-agent.md');
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(
+      filePath,
+      `---
+name: path-agent
+tools: read
+thinking: off
+---
+
+Loaded from a direct path.
+`,
+      'utf8',
+    );
+
+    try {
+      const agent = await loadAgentFromPath('agents/path-agent.md', cwd);
+      expect(agent).toMatchObject({
+        name: 'path-agent',
+        source: 'path',
+        filePath,
+        tools: ['read'],
+      });
+      expect(agent.prompt).toBe('Loaded from a direct path.\n');
+    } finally {
+      await fs.rm(cwd, { recursive: true, force: true });
+    }
+  });
+
+  test('resolves direct agent paths relative to cwd', () => {
+    const cwd = path.join(os.tmpdir(), 'custom-agent-cwd');
+    expect(resolveAgentFilePath('agents/path-agent.md', cwd)).toBe(
+      path.join(cwd, 'agents', 'path-agent.md'),
+    );
+  });
+
+  test('summarizes path-loaded agents with the relative Markdown path', () => {
+    const cwd = path.join(os.tmpdir(), 'custom-agent-cwd');
+    const agent = parseAgent(
+      `---
+name: scout
+thinking: off
+---
+
+Scout instructions.
+`,
+      path.join(cwd, 'path', 'to', 'agent.md'),
+      'path',
+    );
+
+    expect(agentSummary(agent, cwd)).toBe(
+      `scout [${path.join('path', 'to', 'agent.md')}] activated`,
+    );
+  });
+
+  test('summarizes project agents with local source label', () => {
+    const cwd = path.join(os.tmpdir(), 'custom-agent-cwd');
+    const agent = parseAgent(
+      `---
+name: local-agent
+thinking: off
+---
+
+Local instructions.
+`,
+      path.join(cwd, '.pi', 'agents', 'local-agent.md'),
+      'project',
+    );
+
+    expect(agentSummary(agent, cwd)).toBe('local-agent [l] activated');
   });
 });
 
