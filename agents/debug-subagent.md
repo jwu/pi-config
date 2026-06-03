@@ -1,7 +1,7 @@
 ---
 name: debug-subagent
 description: 用于调试 subagent 的 system prompt
-tools: read, subagent, export-system-prompt
+tools: read, subagent
 model: deepseek/deepseek-v4-flash
 thinking: off
 allowedAgents: scout, non-exits, debug-subagent, debug-subagent-replace
