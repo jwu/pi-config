@@ -13,14 +13,23 @@ type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'minimal' | 'xhigh';
 type SystemPromptMode = 'replace' | 'append';
 type AgentSource = 'global' | 'project';
 
+/**
+ * Keep this close to ~/dev/jwu/pi-subagents/extensions/agent-loader.ts.
+ *
+ * custom-agent does not spawn a child pi process. Its purpose is to reuse the
+ * pi-subagents Markdown agent frontmatter and system-prompt injection model for
+ * the current `pi --agent <name>` session.
+ */
 interface AgentConfig {
   name: string;
   description?: string;
   tools: string[];
-  skills: string[];
+  skills?: string[];
   model?: string;
   thinking: ThinkingLevel;
-  allowedAgents: string[];
+  allowedAgents?: string[];
+  maxDepth: number;
+  debug: boolean;
   systemPromptMode: SystemPromptMode;
   prompt: string;
   source: AgentSource;
@@ -50,6 +59,14 @@ interface AgentWarning {
 
 interface CustomAgentSystemPromptBridge {
   getPrompt?: (basePrompt: string) => string | undefined;
+}
+
+/** Mirrors the system-prompt option shape used by pi-subagents/subagent-prompt.ts. */
+interface SystemPromptInjectionOptions {
+  selectedTools?: string[];
+  toolSnippets?: Record<string, string>;
+  promptGuidelines?: string[];
+  injectToolGuidelines?: boolean;
 }
 
 const SYSTEM_PROMPT_BRIDGE = Symbol.for('pi-config.custom-agent.systemPromptBridge');
@@ -85,15 +102,6 @@ function globalSkillsDir(): string {
 
 function globalSettingsPath(): string {
   return path.join(os.homedir(), '.pi', 'agent', 'settings.json');
-}
-
-function skillFileCandidates(skillName: string, cwd: string): string[] {
-  return [
-    path.join(cwd, '.agents', 'skills', skillName, 'SKILL.md'),
-    path.join(cwd, '.pi', 'skills', skillName, 'SKILL.md'),
-    path.join(globalSkillsDir(), skillName, 'SKILL.md'),
-    path.join(os.homedir(), '.agents', 'skills', skillName, 'SKILL.md'),
-  ];
 }
 
 async function resolvePackageSkillFiles(cwd: string): Promise<{
@@ -134,7 +142,7 @@ function parseFrontmatter(content: string): { data: Record<string, string>; body
   if (end === -1) throw new Error('missing frontmatter terminator');
 
   const raw = content.slice(4, end);
-  const body = content.slice(end + '\n---'.length).replace(/^\n/, '');
+  const body = content.slice(end + '\n---'.length).replace(/^\s+/, '');
   const data: Record<string, string> = {};
 
   for (const line of raw.split('\n')) {
@@ -156,7 +164,7 @@ function parseFrontmatter(content: string): { data: Record<string, string>; body
 
 function parseSkillFrontmatter(
   content: string,
-): { name?: string; description?: string } | undefined {
+): { name: string; description: string } | undefined {
   const normalized = content.replace(/\r\n/g, '\n');
   if (!normalized.startsWith('---')) return undefined;
   const end = normalized.indexOf('\n---', 3);
@@ -192,79 +200,177 @@ function parseSkillFrontmatter(
   }
   delete data._currentBlockKey;
 
-  if (!data.description?.trim()) return undefined;
-  return { name: data.name, description: data.description.trim() };
+  return {
+    name: (data.name ?? '').trim(),
+    description: (data.description ?? '').trim(),
+  };
 }
 
-async function readSkillFromFile(
-  filePath: string,
-  requestedName: string,
-  requireNameMatch: boolean,
-): Promise<ResolvedSkill | undefined> {
-  const content = await fs.readFile(filePath, 'utf8');
+function wildcardToRegex(pattern: string): RegExp {
+  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*');
+  return new RegExp(`^${escaped}$`);
+}
+
+function hasWildcard(pattern: string): boolean {
+  return pattern.includes('*');
+}
+
+interface CollectedSkills {
+  byName: Map<string, ResolvedSkill>;
+  skippedPackages: string[];
+  warnings: string[];
+}
+
+interface ReadSkillResult {
+  skill?: ResolvedSkill;
+  warning?: string;
+}
+
+const collectedSkillsCache = new Map<string, Promise<CollectedSkills>>();
+
+function skillsCacheKey(cwd: string): string {
+  return JSON.stringify({ cwd, globalSkillsDir: globalSkillsDir() });
+}
+
+async function collectAllSkills(cwd: string): Promise<CollectedSkills> {
+  const cacheKey = skillsCacheKey(cwd);
+  let cached = collectedSkillsCache.get(cacheKey);
+  if (!cached) {
+    cached = collectAllSkillsUncached(cwd);
+    collectedSkillsCache.set(cacheKey, cached);
+  }
+  return cached;
+}
+
+function readSkill(filePath: string, content: string): ReadSkillResult | undefined {
   const frontmatter = parseSkillFrontmatter(content);
   if (!frontmatter) return undefined;
 
-  const fileSkillName = frontmatter.name || path.basename(path.dirname(filePath));
-  const markdownName = path.basename(filePath, '.md');
-  if (requireNameMatch && fileSkillName !== requestedName && markdownName !== requestedName) {
-    return undefined;
+  if (!frontmatter.name) {
+    return { warning: `skill missing required field: name: ${filePath}` };
   }
+  if (!frontmatter.description) return undefined;
 
   return {
-    name: fileSkillName || requestedName,
-    description: frontmatter.description || '',
-    location: filePath,
+    skill: {
+      name: frontmatter.name,
+      description: frontmatter.description,
+      location: filePath,
+    },
   };
+}
+
+async function skillFilesInDir(dir: string): Promise<string[]> {
+  let entries: string[];
+  try {
+    entries = (await fs.readdir(dir, { withFileTypes: true }))
+      .map((entry) => path.join(dir, entry.name, 'SKILL.md'))
+      .sort();
+  } catch {
+    return [];
+  }
+
+  const files: string[] = [];
+  for (const filePath of entries) {
+    try {
+      await fs.access(filePath);
+      files.push(filePath);
+    } catch {
+      // Skip entries without SKILL.md. This also lets symlinked skill dirs work.
+    }
+  }
+  return files;
+}
+
+async function addSkillFile(
+  filePath: string,
+  byName: Map<string, ResolvedSkill>,
+  warnings: string[],
+): Promise<void> {
+  try {
+    const result = readSkill(filePath, await fs.readFile(filePath, 'utf8'));
+    if (!result) return;
+    if (result.warning) warnings.push(result.warning);
+    if (result.skill && !byName.has(result.skill.name)) byName.set(result.skill.name, result.skill);
+  } catch (error) {
+    warnings.push(
+      `skill could not be read: ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+async function collectAllSkillsUncached(cwd: string): Promise<CollectedSkills> {
+  const byName = new Map<string, ResolvedSkill>();
+  const warnings: string[] = [];
+
+  for (const dir of [
+    path.join(cwd, '.agents', 'skills'),
+    path.join(cwd, '.pi', 'skills'),
+    globalSkillsDir(),
+    path.join(os.homedir(), '.agents', 'skills'),
+  ]) {
+    for (const filePath of await skillFilesInDir(dir)) {
+      await addSkillFile(filePath, byName, warnings);
+    }
+  }
+
+  const { files, skippedPackages } = await resolvePackageSkillFiles(cwd);
+  for (const filePath of files) {
+    await addSkillFile(filePath, byName, warnings);
+  }
+
+  return { byName, skippedPackages, warnings };
 }
 
 async function resolveSkills(
   skillNames: string[],
   cwd: string,
-): Promise<{ resolved: ResolvedSkill[]; missing: string[]; skippedPackages: string[] }> {
+): Promise<{
+  resolved: ResolvedSkill[];
+  missing: string[];
+  skippedPackages: string[];
+  warnings: string[];
+}> {
+  const requestedNames = skillNames.map((name) => name.trim()).filter(Boolean);
+  if (requestedNames.length === 0) {
+    return { resolved: [], missing: [], skippedPackages: [], warnings: [] };
+  }
+
+  const collected = await collectAllSkills(cwd);
   const resolved: ResolvedSkill[] = [];
   const missing: string[] = [];
-  const pendingPackageResolution: string[] = [];
+  const seen = new Set<string>();
 
-  for (const skillName of skillNames) {
-    const trimmed = skillName.trim();
-    if (!trimmed) continue;
-
-    let skill: ResolvedSkill | undefined;
-    for (const filePath of skillFileCandidates(trimmed, cwd)) {
-      try {
-        skill = await readSkillFromFile(filePath, trimmed, false);
-        if (skill) break;
-      } catch {
-        // Try the next candidate path.
-      }
-    }
-
-    if (skill) resolved.push(skill);
-    else pendingPackageResolution.push(trimmed);
+  function addSkill(skill: ResolvedSkill): void {
+    if (seen.has(skill.name)) return;
+    seen.add(skill.name);
+    resolved.push(skill);
   }
 
-  const packageSkills =
-    pendingPackageResolution.length > 0
-      ? await resolvePackageSkillFiles(cwd)
-      : { files: [], skippedPackages: [] };
-
-  for (const skillName of pendingPackageResolution) {
-    let skill: ResolvedSkill | undefined;
-    for (const filePath of packageSkills.files) {
-      try {
-        skill = await readSkillFromFile(filePath, skillName, true);
-        if (skill) break;
-      } catch {
-        // Try the next package skill file.
+  for (const requestedName of requestedNames) {
+    if (hasWildcard(requestedName)) {
+      const regex = wildcardToRegex(requestedName);
+      let matched = false;
+      for (const skill of collected.byName.values()) {
+        if (!regex.test(skill.name)) continue;
+        matched = true;
+        addSkill(skill);
       }
+      if (!matched) missing.push(requestedName);
+      continue;
     }
 
-    if (skill) resolved.push(skill);
-    else missing.push(skillName);
+    const skill = collected.byName.get(requestedName);
+    if (skill) addSkill(skill);
+    else missing.push(requestedName);
   }
 
-  return { resolved, missing, skippedPackages: packageSkills.skippedPackages };
+  return {
+    resolved,
+    missing,
+    skippedPackages: collected.skippedPackages,
+    warnings: collected.warnings,
+  };
 }
 
 function parseAgent(content: string, filePath: string, source: AgentSource): AgentConfig {
@@ -276,19 +382,40 @@ function parseAgent(content: string, filePath: string, source: AgentSource): Age
     throw new Error(`invalid thinking: ${data.thinking}`);
   }
 
-  const systemPromptMode = (data.systemPrompt ?? 'replace') as SystemPromptMode;
+  const systemPromptMode = (data.systemPrompt ?? 'append') as SystemPromptMode;
   if (systemPromptMode !== 'replace' && systemPromptMode !== 'append') {
     throw new Error(`invalid systemPrompt: ${data.systemPrompt}`);
   }
+
+  let maxDepth = 10;
+  if (data.maxDepth !== undefined) {
+    maxDepth = Number(data.maxDepth);
+    if (!Number.isInteger(maxDepth) || maxDepth < 0) {
+      throw new Error(`invalid maxDepth: ${data.maxDepth}`);
+    }
+  }
+
+  let debug = false;
+  if (data.debug !== undefined) {
+    if (data.debug !== 'true' && data.debug !== 'false') {
+      throw new Error(`invalid debug: ${data.debug}`);
+    }
+    debug = data.debug === 'true';
+  }
+
+  const allowedAgents = splitCsv(data.allowedAgents);
+  const skills = splitCsv(data.skills);
 
   return {
     name: data.name,
     description: data.description || undefined,
     tools: splitCsv(data.tools),
-    skills: splitCsv(data.skills),
+    skills: skills.length > 0 ? skills : undefined,
     model: data.model || undefined,
     thinking,
-    allowedAgents: splitCsv(data.allowedAgents),
+    allowedAgents: allowedAgents.length > 0 ? allowedAgents : undefined,
+    maxDepth,
+    debug,
     systemPromptMode,
     prompt: body,
     source,
@@ -443,6 +570,17 @@ async function setThinkingLevelWithoutSavingDefault(
   }
 }
 
+function availableSubagentsForAgent(
+  agent: AgentConfig,
+  allAgentNames: string[],
+): string[] {
+  if ((agent.allowedAgents?.length ?? 0) > 0) {
+    const allowed = new Set(agent.allowedAgents);
+    return [...new Set(allAgentNames.filter((name) => allowed.has(name)))].sort();
+  }
+  return [...new Set(allAgentNames)].sort();
+}
+
 function agentSummary(agent: AgentConfig): string {
   const sourceLabel: Record<AgentSource, string> = {
     global: 'g',
@@ -458,6 +596,74 @@ function escapeXml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;');
+}
+
+function uniqueNonEmpty(values: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = value.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function formatAvailableToolsAndGuidelinesBlock(
+  options: SystemPromptInjectionOptions,
+): string | undefined {
+  const selectedTools = options.selectedTools ?? ['read', 'bash', 'edit', 'write'];
+  const visibleTools = selectedTools.filter((name) => options.toolSnippets?.[name]);
+  const toolsList =
+    visibleTools.length > 0
+      ? visibleTools.map((name) => `- ${name}: ${options.toolSnippets![name]}`).join('\n')
+      : '(none)';
+
+  const hasBashOnlyForFileExploration =
+    selectedTools.includes('bash') &&
+    !selectedTools.includes('grep') &&
+    !selectedTools.includes('find') &&
+    !selectedTools.includes('ls');
+  const guidelines = uniqueNonEmpty([
+    ...(hasBashOnlyForFileExploration ? ['Use bash for file operations like ls, rg, find'] : []),
+    ...(options.promptGuidelines ?? []),
+    'Be concise in your responses',
+    'Show file paths clearly when working with files',
+  ]);
+  const guidelineLines = guidelines.map((guideline) => `- ${guideline}`).join('\n');
+
+  return [
+    'Available tools:',
+    toolsList,
+    '',
+    'In addition to the tools above, you may have access to other custom tools depending on the project.',
+    '',
+    'Guidelines:',
+    guidelineLines || '(none)',
+  ].join('\n');
+}
+
+function appendBeforeTrailingRuntimeMetadata(systemPrompt: string, block: string): string {
+  const marker = '\nCurrent date:';
+  const index = systemPrompt.lastIndexOf(marker);
+  if (index === -1) return `${systemPrompt.trimEnd()}\n\n${block}`;
+
+  const before = systemPrompt.slice(0, index).trimEnd();
+  const after = systemPrompt.slice(index);
+  return `${before}\n\n${block}${after}`;
+}
+
+function appendAvailableToolsAndGuidelinesBlock(
+  systemPrompt: string,
+  options: SystemPromptInjectionOptions,
+): string {
+  const block = formatAvailableToolsAndGuidelinesBlock(options);
+  if (!block || systemPrompt.includes('Available tools:') || systemPrompt.includes('Guidelines:')) {
+    return systemPrompt;
+  }
+
+  return appendBeforeTrailingRuntimeMetadata(systemPrompt, block);
 }
 
 function formatAvailableSubagentsBlock(agentNames: string[]): string | undefined {
@@ -501,27 +707,36 @@ function stripBuiltInSkills(prompt: string): string {
     .trimEnd();
 }
 
-function agentPromptWithInjections(
-  agent: AgentConfig,
-  skills: ResolvedSkill[],
+function appendAvailableSubagentsBlock(systemPrompt: string, agentNames: string[]): string {
+  const block = formatAvailableSubagentsBlock(agentNames);
+  if (!block || systemPrompt.includes(block)) return systemPrompt;
+
+  return `${systemPrompt.trimEnd()}\n\n${block}`;
+}
+
+function shouldInjectAvailableSubagents(options: SystemPromptInjectionOptions): boolean {
+  return options.selectedTools?.includes('subagent') ?? false;
+}
+
+function buildAgentPromptWithSkills(agent: AgentConfig, skills: ResolvedSkill[]): string {
+  return `${agent.prompt.trimEnd()}${formatSkillsForPrompt(skills)}`.trimEnd();
+}
+
+function appendPiSubagentsReplaceModeRuntimeBlocks(
+  systemPrompt: string,
   availableSubagents: string[],
-  basePrompt: string,
+  options: SystemPromptInjectionOptions,
 ): string {
-  let prompt = agent.prompt.trimEnd();
+  // Match pi-subagents ordering for replace-mode processes:
+  // agent prompt/skills -> Available tools/Guidelines -> Available subagents.
+  let result = options.injectToolGuidelines
+    ? appendAvailableToolsAndGuidelinesBlock(systemPrompt, options)
+    : systemPrompt;
 
-  if (agent.tools.includes('subagent') || agent.allowedAgents.length > 0) {
-    const availableSubagentsBlock = formatAvailableSubagentsBlock(availableSubagents);
-    const alreadyInPrompt = availableSubagentsBlock && prompt.includes(availableSubagentsBlock);
-    const alreadyInBase =
-      agent.systemPromptMode === 'append' &&
-      availableSubagentsBlock &&
-      basePrompt.includes(availableSubagentsBlock);
-    if (availableSubagentsBlock && !alreadyInPrompt && !alreadyInBase) {
-      prompt = `${prompt}\n\n${availableSubagentsBlock}`;
-    }
+  if (shouldInjectAvailableSubagents(options)) {
+    result = appendAvailableSubagentsBlock(result, availableSubagents);
   }
-
-  return `${prompt}${formatSkillsForPrompt(skills)}`.trimEnd();
+  return result;
 }
 
 function buildAgentSystemPrompt(
@@ -529,14 +744,24 @@ function buildAgentSystemPrompt(
   basePrompt: string,
   skills: ResolvedSkill[],
   availableSubagents: string[],
+  options: SystemPromptInjectionOptions = {},
 ): string {
-  const prompt = agentPromptWithInjections(agent, skills, availableSubagents, basePrompt);
-  if (agent.systemPromptMode === 'replace') return prompt;
+  const prompt = buildAgentPromptWithSkills(agent, skills);
+
+  if (agent.systemPromptMode === 'replace') {
+    return appendPiSubagentsReplaceModeRuntimeBlocks(prompt, availableSubagents, options);
+  }
 
   const trimmedBase = stripBuiltInSkills(basePrompt);
-  if (!prompt) return trimmedBase;
-  if (trimmedBase.endsWith(prompt)) return basePrompt;
-  return `${trimmedBase}\n\n${prompt}`;
+  let systemPrompt: string;
+  if (!prompt) systemPrompt = trimmedBase;
+  else if (trimmedBase.endsWith(prompt)) systemPrompt = basePrompt;
+  else systemPrompt = `${trimmedBase}\n\n${prompt}`;
+
+  if (shouldInjectAvailableSubagents(options)) {
+    systemPrompt = appendAvailableSubagentsBlock(systemPrompt, availableSubagents);
+  }
+  return systemPrompt;
 }
 
 export const __testing = {
@@ -555,6 +780,8 @@ export default function (pi: ExtensionAPI): void {
   let activeAgent: AgentConfig | undefined;
   let activeSkills: ResolvedSkill[] = [];
   let activeAvailableSubagents: string[] = [];
+  let activeSelectedTools: string[] | undefined;
+  let activePromptOptions: SystemPromptInjectionOptions | undefined;
   let startupError: string | undefined;
   const promptBridge = getSystemPromptBridge();
 
@@ -562,6 +789,8 @@ export default function (pi: ExtensionAPI): void {
     activeAgent = undefined;
     activeSkills = [];
     activeAvailableSubagents = [];
+    activeSelectedTools = undefined;
+    activePromptOptions = undefined;
     startupError = undefined;
     promptBridge.getPrompt = undefined;
 
@@ -586,15 +815,21 @@ export default function (pi: ExtensionAPI): void {
     }
 
     activeAgent = agent;
-    activeAvailableSubagents =
-      agent.allowedAgents.length > 0
-        ? agent.allowedAgents
-        : agents.map((candidate) => candidate.name);
-    if (agent.skills.length > 0) {
-      const { resolved, missing, skippedPackages } = await resolveSkills(agent.skills, ctx.cwd);
+    activeAvailableSubagents = availableSubagentsForAgent(
+      agent,
+      agents.map((candidate) => candidate.name),
+    );
+    if ((agent.skills?.length ?? 0) > 0) {
+      const { resolved, missing, skippedPackages, warnings: skillWarnings } = await resolveSkills(
+        agent.skills!,
+        ctx.cwd,
+      );
       activeSkills = resolved;
       for (const source of skippedPackages) {
         console.warn(`[custom-agent] skipped package during skill resolution: ${source}`);
+      }
+      for (const warning of skillWarnings) {
+        console.warn(`[custom-agent] ${warning}`);
       }
       for (const skillName of missing) {
         const message = `Agent "${agent.name}": skill not found: ${skillName}`;
@@ -602,8 +837,17 @@ export default function (pi: ExtensionAPI): void {
         if (ctx.hasUI) ctx.ui.notify(message, 'warning');
       }
     }
-    promptBridge.getPrompt = (basePrompt) =>
-      buildAgentSystemPrompt(agent, basePrompt, activeSkills, activeAvailableSubagents);
+    promptBridge.getPrompt = (basePrompt) => {
+      const fallbackToolSnippets = Object.fromEntries(
+        pi.getAllTools().map((tool) => [tool.name, tool.description]),
+      );
+      return buildAgentSystemPrompt(agent, basePrompt, activeSkills, activeAvailableSubagents, {
+        toolSnippets: fallbackToolSnippets,
+        ...activePromptOptions,
+        selectedTools: activePromptOptions?.selectedTools ?? activeSelectedTools,
+        injectToolGuidelines: true,
+      });
+    };
 
     if (agent.model) {
       const parts = modelParts(agent.model);
@@ -634,6 +878,7 @@ export default function (pi: ExtensionAPI): void {
         console.warn(`[custom-agent] ${message}`);
         if (ctx.hasUI) ctx.ui.notify(message, 'warning');
       }
+      activeSelectedTools = validTools;
       if (validTools.length > 0) pi.setActiveTools(validTools);
     }
 
@@ -649,12 +894,18 @@ export default function (pi: ExtensionAPI): void {
   pi.on('before_agent_start', async (event) => {
     if (!activeAgent) return;
 
+    activePromptOptions = {
+      ...event.systemPromptOptions,
+      injectToolGuidelines: true,
+    };
+
     return {
       systemPrompt: buildAgentSystemPrompt(
         activeAgent,
         event.systemPrompt,
         activeSkills,
         activeAvailableSubagents,
+        activePromptOptions,
       ),
     };
   });
