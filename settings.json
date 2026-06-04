@@ -11,7 +11,6 @@
     "npm:@johnnywu/pi-default-tools",
     "npm:@johnnywu/pi-filechanges",
     "npm:@johnnywu/pi-subagents",
-    "npm:@johnnywu/pi-terminal-signals",
     "npm:@johnnywu/pi-webfetch",
     "npm:pi-animations",
     "npm:pi-intercom",
