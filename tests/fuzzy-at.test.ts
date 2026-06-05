@@ -3,18 +3,27 @@ import { __testing } from '../extensions/fuzzy-at.ts';
 
 const {
   buildFinderCommands,
+  comparePath,
   extractAtToken,
   filterFuzzyPaths,
   fuzzyScorePath,
   highlightPositions,
   normalizeFinderPath,
   quoteCompletionPath,
+  renderFuzzyAtItem,
+  snacksTruncatePath,
+  toAutocompleteItem,
+  toSinglePathAtSuggestions,
   uniquePaths,
 } = __testing;
 
 describe('fuzzy @ autocomplete helpers', () => {
   test('extracts plain and quoted @ tokens at token boundaries', () => {
-    expect(extractAtToken('see @myfbar')).toEqual({ prefix: '@myfbar', query: 'myfbar', quoted: false });
+    expect(extractAtToken('see @myfbar')).toEqual({
+      prefix: '@myfbar',
+      query: 'myfbar',
+      quoted: false,
+    });
     expect(extractAtToken('see @"my path')).toEqual({
       prefix: '@"my path',
       query: 'my path',
@@ -36,19 +45,90 @@ describe('fuzzy @ autocomplete helpers', () => {
     expect(matches[0]?.positions.length).toBe('myfbar'.length);
   });
 
+  test('sorts fuzzy paths with snacks default fields: score desc, text length asc, stable idx', () => {
+    const paths = ['a/long/b.ts', 'a/b.ts'];
+    const matches = filterFuzzyPaths(paths, 'a');
+    expect(matches.map((match) => match.path)).toEqual(['a/b.ts', 'a/long/b.ts']);
+  });
+
   test('highlights matched positions with warning-colored spans', () => {
-    expect(highlightPositions('foobar.md', [0, 3, 4], 0, (text) => `<warning>${text}</warning>`)).toBe(
-      '<warning>f</warning>oo<warning>ba</warning>r.md',
-    );
+    expect(
+      highlightPositions('foobar.md', [0, 3, 4], 0, (text) => `<warning>${text}</warning>`),
+    ).toBe('<warning>f</warning>oo<warning>ba</warning>r.md');
     expect(highlightPositions('foobar.md', [3, 4], 3, (text) => `<warning>${text}</warning>`)).toBe(
       '<warning>fo</warning>obar.md',
     );
     expect(highlightPositions('foobar.md', [0])).toBe('\x1b[33mf\x1b[39moobar.md');
   });
 
-  test('normalizes and deduplicates finder paths', () => {
+  test('formats autocomplete candidates as full paths instead of basename plus description', () => {
+    const item = toAutocompleteItem(
+      { path: 'my/path/foobar.md', score: 1, positions: [0, 3, 8], index: 0 },
+      false,
+      (text) => `<warning>${text}</warning>`,
+    );
+
+    expect(item.value).toBe('@my/path/foobar.md');
+    expect(item.label).toBe(
+      '<warning>m</warning>y/<warning>p</warning>ath/<warning>f</warning>oobar.md',
+    );
+    expect(item.description).toBeUndefined();
+  });
+
+  test('truncates long paths with snacks-style center path folding', () => {
+    expect(snacksTruncatePath('a/b/c/d/e.md', 10, [0, 8, 10, 11])).toEqual({
+      text: 'a/…/d/e.md',
+      positions: [0, 6, 8, 9],
+    });
+    expect(snacksTruncatePath('a/b/superlongfilename.md', 12).text).toBe('a/…/…name.md');
+  });
+
+  test('converts delegated empty @ suggestions to single-column full paths', () => {
+    const suggestions = toSinglePathAtSuggestions(
+      {
+        prefix: '@',
+        items: [
+          { value: '@.clang-format', label: '.clang-format', description: '.clang-format' },
+          { value: '@.github/', label: '.github/', description: '.github' },
+          {
+            value: '@.github/ISSUE_TEMPLATE/bug_report.yml',
+            label: 'bug_report.yml',
+            description: '.github/ISSUE_TEMPLATE/bug_report.yml',
+          },
+        ],
+      },
+      (text) => `<warning>${text}</warning>`,
+    );
+
+    expect(
+      suggestions.items.map((item) => ({ label: item.label, description: item.description })),
+    ).toEqual([
+      { label: '.clang-format', description: undefined },
+      { label: '.github/', description: undefined },
+      { label: '.github/ISSUE_TEMPLATE/bug_report.yml', description: undefined },
+    ]);
+  });
+
+  test('does not wrap selected fuzzy @ rows with selected text color over match highlights', () => {
+    const item = toAutocompleteItem(
+      { path: 'editor/editor_node.h', score: 1, positions: [0, 7], index: 0 },
+      false,
+      (text) => `<warning>${text}</warning>`,
+    );
+
+    expect(
+      renderFuzzyAtItem(item, true, 80, {
+        selectedPrefix: (text) => `<selected-prefix>${text}</selected-prefix>`,
+      }),
+    ).toBe(
+      '<selected-prefix>→ </selected-prefix><warning>e</warning>ditor/<warning>e</warning>ditor_node.h',
+    );
+  });
+
+  test('normalizes, deduplicates, and stabilizes finder paths', () => {
     expect(normalizeFinderPath('./my/path/foobar.md')).toBe('my/path/foobar.md');
-    expect(uniquePaths(['./a.ts', 'a.ts', '.git/config', ''])).toEqual(['a.ts']);
+    expect(uniquePaths(['b.ts', './a.ts', 'a.ts', '.git/config', ''])).toEqual(['a.ts', 'b.ts']);
+    expect(['b.ts', 'a.ts'].sort(comparePath)).toEqual(['a.ts', 'b.ts']);
   });
 
   test('quotes completion values when needed', () => {
@@ -58,6 +138,11 @@ describe('fuzzy @ autocomplete helpers', () => {
   });
 
   test('uses snacks finder command fallback order', () => {
-    expect(buildFinderCommands().map((command) => command.cmd)).toEqual(['fd', 'fdfind', 'rg', 'find']);
+    expect(buildFinderCommands().map((command) => command.cmd)).toEqual([
+      'fd',
+      'fdfind',
+      'rg',
+      'find',
+    ]);
   });
 });

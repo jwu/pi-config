@@ -99,12 +99,11 @@ fuzzy-at provider
   -> pi built-in CombinedAutocompleteProvider
 ```
 
-自定义 provider 只处理非空 `@query`。以下情况仍委托给内置 provider：
+自定义 provider 会处理 `@query`，并且会把刚输入 `@` 时内置 provider 返回的空 query 候选重排成单列 full path 展示。以下情况仍委托给内置 provider：
 
 - 不是 `@` token；
-- query 为空，例如刚输入 `@`；
-- 文件枚举失败；
-- 自定义 fuzzy 没有匹配结果。
+- 文件枚举失败且内置 provider 仍有结果；
+- 自定义 fuzzy 没有匹配结果且内置 provider 仍有结果。
 
 ## Finder flow
 
@@ -118,8 +117,8 @@ fuzzy-at provider
 实现函数：
 
 ```ts
-buildFinderCommands()
-enumerateCandidatePaths()
+buildFinderCommands();
+enumerateCandidatePaths();
 ```
 
 当前参数：
@@ -154,10 +153,10 @@ query:    mpafbar
 实现函数：
 
 ```ts
-fuzzyMatchPath(path, query)
-fuzzyFindMatch(searchText, displayText, chars, init)
-fuzzyScorePath(path, query)
-filterFuzzyPaths(paths, query)
+fuzzyMatchPath(path, query);
+fuzzyFindMatch(searchText, displayText, chars, init);
+fuzzyScorePath(path, query);
+filterFuzzyPaths(paths, query);
 ```
 
 行为要点：
@@ -184,15 +183,21 @@ filterFuzzyPaths(paths, query)
 - first char multiplier
 - filename bonus（当匹配起点后面没有路径分隔符时加分）
 
-排序方向和 Snacks 一样：分数越高越靠前。
+排序方向参考 Snacks 默认 files picker：
 
-```ts
-scored.sort((a, b) => b.score - a.score || a.index - b.index);
+```text
+score:desc -> #text:asc -> idx:asc
 ```
 
-同分时保留 finder 原始顺序。
+对应到本扩展：分数越高越靠前；同分时短路径优先；仍同分时按稳定 idx。
 
-## Highlighting
+```ts
+scored.sort((a, b) => b.score - a.score || a.path.length - b.path.length || a.index - b.index);
+```
+
+Snacks 的 `idx` 来自 finder 产出顺序。本扩展为了让结果跨 finder / 跨运行更稳定，会先把枚举出的候选路径按字典序稳定化，然后再把该顺序作为 `idx`。
+
+## Presentation / highlighting
 
 匹配过程中会记录命中字符的位置：
 
@@ -203,22 +208,39 @@ interface FuzzyMatch {
 }
 ```
 
-然后对 autocomplete item 的 `label` 和 `description` 做 ANSI 高亮：
+候选展示现在更接近 Snacks.nvim 的 file formatter：主列直接展示完整相对路径，而不是 basename + description 两列。刚输入 `@` 时，内置 provider 返回的空 query 结果也会被转换成同样的单列路径：
+
+```text
+→ editor/editor_node.h
+  editor/editor_node.cpp
+  editor/translations/editor/th.po
+```
+
+命中字符会在路径字符串内做 ANSI 高亮：
 
 ```ts
-label: highlightPositions(base, match.positions, baseOffset, highlightStyle),
-description: highlightPositions(match.path, match.positions, 0, highlightStyle),
+label: highlightPositions(match.path, match.positions, 0, highlightStyle);
 ```
 
 当前高亮颜色使用 pi 当前主题的 `warning`：
 
 ```ts
-(text) => ctx.ui.theme.fg('warning', text)
+(text) => ctx.ui.theme.fg('warning', text);
 ```
 
 这样能跟用户主题保持一致。
 
 实现上这是利用 pi-tui 的 `SelectList` 会保留 ANSI escape code 的特性。`visibleWidth()` 和 `truncateToWidth()` 支持 ANSI，因此显示宽度不会被颜色码破坏。
+
+长路径展示也参考 Snacks.nvim 的 `truncpath()`：当 autocomplete 行宽不足时，通过 monkey patch 只对本扩展产生的 `@` 文件候选使用中间折叠，例如：
+
+```text
+a/b/c/d/e.md -> a/…/d/e.md
+```
+
+折叠后仍会把原始 match positions 映射到可见路径，尽量保留可见命中字符的高亮。
+
+选中行会绕开 pi-tui 默认的整行 `selectedText()` 包裹，只给 `→ ` 前缀使用 selected prefix 样式，避免 selected ANSI 与 match ANSI 互相 reset / 覆盖。
 
 ### Limitation
 
@@ -245,7 +267,7 @@ AutocompleteItem = {
 候选项的 `value` 仍是可插入路径：
 
 ```ts
-value: quoteCompletionPath(match.path, quoted)
+value: quoteCompletionPath(match.path, quoted);
 ```
 
 路径含空格或用户正在使用 quoted token 时，会生成：
@@ -296,11 +318,12 @@ bun run format:check
 bun test
 ```
 
-截至实现时：
+截至最近验证：
 
 ```text
 bun run format:check ✅
-bun test ✅ 41 pass
+bun test ✅ 46 pass
+bun tsc --noEmit --ignoreConfig ... extensions/fuzzy-at.ts ✅
 ```
 
 `bun run typecheck` 当前会因为既有的 `extensions/terminal-signals.ts` 中 `SessionSwitchEvent/session_switch` 类型问题失败；和 `fuzzy-at.ts` 无关。

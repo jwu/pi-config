@@ -1,5 +1,5 @@
-import { basename } from 'node:path';
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import { SelectList, visibleWidth } from '@earendil-works/pi-tui';
 import type {
   AutocompleteItem,
   AutocompleteProvider,
@@ -9,6 +9,8 @@ import type {
 const MAX_SUGGESTIONS = 20;
 const CACHE_TTL_MS = 15_000;
 const FINDER_TIMEOUT_MS = 3_000;
+const PATH_TRUNCATION_MARKER = '…';
+const FUZZY_AT_PATH_META = '__piConfigFuzzyAtPathMeta';
 
 const SCORE_MATCH = 16;
 const SCORE_GAP_START = -3;
@@ -58,6 +60,58 @@ interface ScoredPath {
   index: number;
 }
 
+interface DisplayPath {
+  text: string;
+  positions: number[];
+}
+
+interface FuzzyAtPathMeta {
+  path: string;
+  positions: number[];
+  highlightStyle: HighlightStyle;
+}
+
+interface FuzzyAtAutocompleteItem extends AutocompleteItem {
+  [FUZZY_AT_PATH_META]: FuzzyAtPathMeta;
+}
+
+interface PathPart {
+  text: string;
+  start: number;
+}
+
+type SelectListTruncatePrimary = (
+  this: unknown,
+  item: AutocompleteItem,
+  isSelected: boolean,
+  maxWidth: number,
+  columnWidth: number,
+) => string;
+
+type SelectListRenderItem = (
+  this: SelectListInstanceWithTheme,
+  item: AutocompleteItem,
+  isSelected: boolean,
+  width: number,
+  descriptionSingleLine: string | undefined,
+  primaryColumnWidth: number,
+) => string;
+
+type SelectListThemeLike = {
+  selectedPrefix?: (text: string) => string;
+};
+
+type SelectListInstanceWithTheme = {
+  theme?: SelectListThemeLike;
+};
+
+type SelectListPrototypeWithPatch = {
+  truncatePrimary?: SelectListTruncatePrimary;
+  renderItem?: SelectListRenderItem;
+  __piConfigFuzzyAtOriginalTruncatePrimary?: SelectListTruncatePrimary;
+  __piConfigFuzzyAtOriginalRenderItem?: SelectListRenderItem;
+};
+
 function extractAtToken(textBeforeCursor: string): AtToken | undefined {
   const quoted = /(?:^|[ \t])(@"[^"]*)$/.exec(textBeforeCursor);
   if (quoted?.[1]) {
@@ -82,6 +136,10 @@ function normalizeFinderPath(path: string): string {
   return path.trim().replace(/^\.\//, '').replace(/\\/g, '/');
 }
 
+function comparePath(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function uniquePaths(paths: string[]): string[] {
   const seen = new Set<string>();
   const unique: string[] = [];
@@ -94,7 +152,7 @@ function uniquePaths(paths: string[]): string[] {
     unique.push(path);
   }
 
-  return unique;
+  return unique.sort(comparePath);
 }
 
 function isLower(value: string): boolean {
@@ -274,7 +332,7 @@ function filterFuzzyPaths(paths: string[], query: string, limit = MAX_SUGGESTION
     }
   });
 
-  scored.sort((a, b) => b.score - a.score || a.index - b.index);
+  scored.sort((a, b) => b.score - a.score || a.path.length - b.path.length || a.index - b.index);
   return scored.slice(0, limit);
 }
 
@@ -319,18 +377,276 @@ function highlightPositions(
   return highlighted;
 }
 
+function splitPathParts(path: string): PathPart[] {
+  const parts: PathPart[] = [];
+  let start = 0;
+
+  for (const text of path.split('/')) {
+    parts.push({ text, start });
+    start += text.length + 1;
+  }
+
+  return parts;
+}
+
+function sliceEndToWidth(text: string, maxWidth: number): string {
+  if (maxWidth <= 0) return '';
+  if (visibleWidth(text) <= maxWidth) return text;
+
+  let sliced = '';
+  for (let index = text.length - 1; index >= 0; index -= 1) {
+    const next = text[index] + sliced;
+    if (visibleWidth(next) > maxWidth) break;
+    sliced = next;
+  }
+  return sliced;
+}
+
+function truncateLeftWithMap(
+  text: string,
+  start: number,
+  maxWidth: number,
+): { text: string; map: number[] } {
+  const markerWidth = visibleWidth(PATH_TRUNCATION_MARKER);
+  if (visibleWidth(text) <= maxWidth) {
+    return { text, map: Array.from({ length: text.length }, (_value, index) => start + index) };
+  }
+  if (maxWidth <= markerWidth) {
+    return { text: sliceEndToWidth(PATH_TRUNCATION_MARKER, maxWidth), map: [] };
+  }
+
+  const tail = sliceEndToWidth(text, maxWidth - markerWidth);
+  const tailStart = text.length - tail.length;
+  return {
+    text: PATH_TRUNCATION_MARKER + tail,
+    map: [
+      ...Array.from({ length: PATH_TRUNCATION_MARKER.length }, () => -1),
+      ...Array.from(tail, (_char, index) => start + tailStart + index),
+    ],
+  };
+}
+
+function mapDisplayPositions(
+  positions: number[],
+  mappedParts: Array<{ text: string; start?: number; map?: number[] }>,
+): number[] {
+  const originalToDisplay = new Map<number, number>();
+  let displayIndex = 0;
+
+  for (const part of mappedParts) {
+    if (part.map) {
+      part.map.forEach((originalIndex, index) => {
+        if (originalIndex >= 0) originalToDisplay.set(originalIndex, displayIndex + index);
+      });
+    } else if (part.start !== undefined) {
+      for (let index = 0; index < part.text.length; index += 1) {
+        originalToDisplay.set(part.start + index, displayIndex + index);
+      }
+    }
+    displayIndex += part.text.length;
+  }
+
+  return positions
+    .map((position) => originalToDisplay.get(position))
+    .filter((position): position is number => position !== undefined);
+}
+
+function snacksTruncatePath(path: string, maxWidth: number, positions: number[] = []): DisplayPath {
+  const normalizedPath = path.replace(/\\/g, '/').replace(/\/$/, '');
+  const marker = `/${PATH_TRUNCATION_MARKER}/`;
+
+  if (maxWidth <= 0) {
+    return { text: '', positions: [] };
+  }
+
+  if (visibleWidth(normalizedPath) <= maxWidth) {
+    return { text: normalizedPath, positions };
+  }
+
+  const parts = splitPathParts(normalizedPath);
+  if (parts.length < 2) {
+    return { text: normalizedPath, positions };
+  }
+
+  const first = parts[0]!;
+  const last = parts[parts.length - 1]!;
+  const minimumWidth = visibleWidth(first.text) + visibleWidth(marker);
+
+  if (maxWidth <= minimumWidth + 1) {
+    const truncated = sliceEndToWidth(
+      normalizedPath,
+      Math.max(0, maxWidth - visibleWidth(PATH_TRUNCATION_MARKER)),
+    );
+    const text = PATH_TRUNCATION_MARKER + truncated;
+    const start = normalizedPath.length - truncated.length;
+    const mappedParts = [
+      { text: PATH_TRUNCATION_MARKER, map: [-1] },
+      { text: truncated, start },
+    ];
+    return { text, positions: mapDisplayPositions(positions, mappedParts) };
+  }
+
+  const basenameWidth = maxWidth - visibleWidth(first.text) - visibleWidth(marker);
+  let tailText = last.text;
+  let tailStart = last.start;
+  let tailMap: number[] | undefined;
+
+  if (visibleWidth(first.text) + visibleWidth(marker) + visibleWidth(tailText) > maxWidth) {
+    const truncatedTail = truncateLeftWithMap(last.text, last.start, basenameWidth);
+    tailText = truncatedTail.text;
+    tailMap = truncatedTail.map;
+  } else {
+    let width = visibleWidth(first.text) + visibleWidth(marker) + visibleWidth(tailText);
+
+    for (let index = parts.length - 2; index > 0; index -= 1) {
+      const part = parts[index]!;
+      const next = `${part.text}/${tailText}`;
+      const nextWidth = visibleWidth(first.text) + visibleWidth(marker) + visibleWidth(next);
+      if (nextWidth > maxWidth || nextWidth <= width) break;
+      tailText = next;
+      tailStart = part.start;
+      width = nextWidth;
+    }
+  }
+
+  const text = `${first.text}${marker}${tailText}`;
+  const mappedParts = [
+    { text: first.text, start: first.start },
+    { text: marker, map: Array.from({ length: marker.length }, () => -1) },
+    tailMap ? { text: tailText, map: tailMap } : { text: tailText, start: tailStart },
+  ];
+  return { text, positions: mapDisplayPositions(positions, mappedParts) };
+}
+
+function getFuzzyAtMeta(item: AutocompleteItem): FuzzyAtPathMeta | undefined {
+  return (item as Partial<FuzzyAtAutocompleteItem>)[FUZZY_AT_PATH_META];
+}
+
+function renderFuzzyAtItem(
+  item: AutocompleteItem,
+  isSelected: boolean,
+  width: number,
+  theme: SelectListThemeLike | undefined,
+): string | undefined {
+  const meta = getFuzzyAtMeta(item);
+  if (!meta) return undefined;
+
+  const rawPrefix = isSelected ? '→ ' : '  ';
+  const prefix = isSelected && theme?.selectedPrefix ? theme.selectedPrefix(rawPrefix) : rawPrefix;
+  const maxWidth = Math.max(1, width - visibleWidth(rawPrefix) - 2);
+  const display = snacksTruncatePath(meta.path, maxWidth, meta.positions);
+  const path = highlightPositions(display.text, display.positions, 0, meta.highlightStyle);
+
+  return prefix + path;
+}
+
+function installSnacksPathTruncationPatch(): void {
+  const prototype = SelectList.prototype as unknown as SelectListPrototypeWithPatch;
+  if (!prototype.truncatePrimary || !prototype.renderItem) return;
+
+  const originalTruncatePrimary =
+    prototype.__piConfigFuzzyAtOriginalTruncatePrimary ?? prototype.truncatePrimary;
+  prototype.__piConfigFuzzyAtOriginalTruncatePrimary = originalTruncatePrimary;
+  prototype.truncatePrimary = function truncatePrimaryWithSnacksPath(
+    this: unknown,
+    item: AutocompleteItem,
+    isSelected: boolean,
+    maxWidth: number,
+    columnWidth: number,
+  ): string {
+    const meta = getFuzzyAtMeta(item);
+    if (meta) {
+      const display = snacksTruncatePath(meta.path, maxWidth, meta.positions);
+      return highlightPositions(display.text, display.positions, 0, meta.highlightStyle);
+    }
+
+    return originalTruncatePrimary.call(this, item, isSelected, maxWidth, columnWidth);
+  };
+
+  const originalRenderItem = prototype.__piConfigFuzzyAtOriginalRenderItem ?? prototype.renderItem;
+  prototype.__piConfigFuzzyAtOriginalRenderItem = originalRenderItem;
+  prototype.renderItem = function renderItemWithFuzzyAtPath(
+    this: SelectListInstanceWithTheme,
+    item: AutocompleteItem,
+    isSelected: boolean,
+    width: number,
+    descriptionSingleLine: string | undefined,
+    primaryColumnWidth: number,
+  ): string {
+    const rendered = renderFuzzyAtItem(item, isSelected, width, this.theme);
+    if (rendered !== undefined) return rendered;
+
+    return originalRenderItem.call(
+      this,
+      item,
+      isSelected,
+      width,
+      descriptionSingleLine,
+      primaryColumnWidth,
+    );
+  };
+}
+
 function toAutocompleteItem(
   match: ScoredPath,
   quoted: boolean,
   highlightStyle: HighlightStyle,
 ): AutocompleteItem {
-  const base = basename(match.path) || match.path;
-  const baseOffset = match.path.length - base.length;
-
-  return {
+  const item: FuzzyAtAutocompleteItem = {
     value: quoteCompletionPath(match.path, quoted),
-    label: highlightPositions(base, match.positions, baseOffset, highlightStyle),
-    description: highlightPositions(match.path, match.positions, 0, highlightStyle),
+    label: highlightPositions(match.path, match.positions, 0, highlightStyle),
+    [FUZZY_AT_PATH_META]: {
+      path: match.path,
+      positions: match.positions,
+      highlightStyle,
+    },
+  };
+
+  return item;
+}
+
+function stripCompletionPrefix(value: string): string {
+  let path = value.startsWith('@') ? value.slice(1) : value;
+  if (path.startsWith('"')) {
+    path = path.slice(1);
+    if (path.endsWith('"')) path = path.slice(0, -1);
+    path = path.replace(/\\"/g, '"');
+  }
+  return path;
+}
+
+function displayPathFromAutocompleteItem(item: AutocompleteItem): string {
+  const valuePath = stripCompletionPrefix(item.value);
+  let path = item.description?.trim() || valuePath || item.label;
+  const isDirectory = item.label.endsWith('/') || valuePath.endsWith('/');
+
+  if (isDirectory && path && !path.endsWith('/')) {
+    path += '/';
+  }
+
+  return path;
+}
+
+function toSinglePathAtSuggestions(
+  suggestions: AutocompleteSuggestions,
+  highlightStyle: HighlightStyle,
+): AutocompleteSuggestions {
+  return {
+    prefix: suggestions.prefix,
+    items: suggestions.items.map((item) => {
+      const path = displayPathFromAutocompleteItem(item);
+      const transformed: FuzzyAtAutocompleteItem = {
+        ...item,
+        label: path,
+        description: undefined,
+        [FUZZY_AT_PATH_META]: {
+          path,
+          positions: [],
+          highlightStyle,
+        },
+      };
+      return transformed;
+    }),
   };
 }
 
@@ -399,18 +715,45 @@ function createFuzzyAtProvider(
       const beforeCursor = line.slice(0, cursorCol);
       const token = extractAtToken(beforeCursor);
 
-      if (!token || token.query.length === 0) {
+      if (!token) {
         return current.getSuggestions(lines, cursorLine, cursorCol, options);
       }
 
+      const getCurrentAtSuggestions = async () => {
+        const suggestions = await current.getSuggestions(lines, cursorLine, cursorCol, options);
+        return suggestions ? toSinglePathAtSuggestions(suggestions, highlightStyle) : null;
+      };
+
+      if (token.query.length === 0) {
+        const suggestions = await getCurrentAtSuggestions();
+        if (suggestions || options.signal.aborted) return suggestions;
+
+        const paths = await getPaths(cwd);
+        if (options.signal.aborted || paths.length === 0) return null;
+
+        return {
+          prefix: token.prefix,
+          items: paths
+            .slice(0, MAX_SUGGESTIONS)
+            .map((path, index) =>
+              toAutocompleteItem(
+                { path, score: 0, positions: [], index },
+                token.quoted,
+                highlightStyle,
+              ),
+            ),
+        };
+      }
+
       const paths = await getPaths(cwd);
-      if (options.signal.aborted || paths.length === 0) {
-        return current.getSuggestions(lines, cursorLine, cursorCol, options);
+      if (options.signal.aborted) return null;
+      if (paths.length === 0) {
+        return getCurrentAtSuggestions();
       }
 
       const matches = filterFuzzyPaths(paths, token.query);
       if (matches.length === 0) {
-        return current.getSuggestions(lines, cursorLine, cursorCol, options);
+        return getCurrentAtSuggestions();
       }
 
       return {
@@ -431,6 +774,7 @@ function createFuzzyAtProvider(
 
 export const __testing = {
   buildFinderCommands,
+  comparePath,
   computeBonus,
   extractAtToken,
   filterFuzzyPaths,
@@ -438,10 +782,15 @@ export const __testing = {
   highlightPositions,
   normalizeFinderPath,
   quoteCompletionPath,
+  renderFuzzyAtItem,
+  snacksTruncatePath,
+  toAutocompleteItem,
+  toSinglePathAtSuggestions,
   uniquePaths,
 };
 
 export default function (pi: ExtensionAPI): void {
+  installSnacksPathTruncationPatch();
   const getPaths = createPathCache(pi);
 
   pi.on('session_start', (_event, ctx) => {
