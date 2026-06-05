@@ -254,7 +254,7 @@ AutocompleteItem = {
 }
 ```
 
-没有正式的 `matchedRanges` 或 custom item renderer。因此高亮是通过在 `label` / `description` 中嵌入 ANSI 实现的。
+没有正式的 `matchedRanges` 或 autocomplete-specific custom item renderer。因此当前实现一方面把 ANSI 高亮嵌入 `label`，另一方面通过 patch `SelectList.renderItem()` 只对 fuzzy-at 候选做长路径折叠和选中行渲染。
 
 如果未来要做和 Snacks 完全一致的高亮/主题行为，最好在 pi-tui 层扩展：
 
@@ -300,8 +300,13 @@ applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
 - quoted `@"...` token 提取；
 - `my/path/foobar.md` 对 `mpafbar` / `myfbar` 的子序列匹配；
 - fuzzy 结果包含 match positions；
+- Snacks 默认排序字段：`score:desc -> #text:asc -> idx:asc`；
 - warning 高亮 span 生成；
-- finder path normalize / dedupe；
+- full path 单列候选展示；
+- 长路径中间折叠和 position remap；
+- 空 `@` 时内置候选转换为单列 full path；
+- 选中行不覆盖 match highlight；
+- finder path normalize / dedupe / stable sort；
 - quoted completion value；
 - finder fallback 顺序。
 
@@ -355,8 +360,9 @@ my/path/foobar.md
 可选优化方向：
 
 1. 枚举目录候选
-   - 当前更贴近 Snacks files source，只枚举 file / symlink。
-   - 如果想保留 pi 内置目录补全体验，可以加入 directory enumeration。
+   - 自定义 fuzzy 枚举当前更贴近 Snacks files source，只枚举 file / symlink。
+   - 空 `@` 或 fallback 到内置 provider 时仍可能显示目录。
+   - 如果想让非空 query 的 fuzzy 也补全目录，可以加入 directory enumeration。
 2. 更长缓存或文件 watcher invalidation
    - 当前 TTL 是 15 秒。
    - 大仓库里可以考虑更长 TTL 或 watch invalidation。
