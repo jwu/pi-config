@@ -5,6 +5,7 @@ import {
   DefaultPackageManager,
   SettingsManager,
   getAgentDir,
+  type BuildSystemPromptOptions,
   type ExtensionAPI,
   type ResolvedResource,
 } from '@earendil-works/pi-coding-agent';
@@ -58,14 +59,13 @@ interface AgentWarning {
 }
 
 interface CustomAgentSystemPromptBridge {
-  getPrompt?: (basePrompt: string) => string | undefined;
+  getPrompt?: (basePrompt: string, options?: BuildSystemPromptOptions) => string | undefined;
 }
 
 /** Mirrors the system-prompt option shape used by pi-subagents/subagent-prompt.ts. */
-interface SystemPromptInjectionOptions {
-  selectedTools?: string[];
-  toolSnippets?: Record<string, string>;
-  promptGuidelines?: string[];
+interface SystemPromptInjectionOptions extends Partial<
+  Pick<BuildSystemPromptOptions, 'selectedTools' | 'toolSnippets' | 'promptGuidelines'>
+> {
   injectToolGuidelines?: boolean;
 }
 
@@ -898,14 +898,16 @@ export default function (pi: ExtensionAPI): void {
         if (ctx.hasUI) ctx.ui.notify(message, 'warning');
       }
     }
-    promptBridge.getPrompt = (basePrompt) => {
+    promptBridge.getPrompt = (basePrompt, options) => {
       const fallbackToolSnippets = Object.fromEntries(
         pi.getAllTools().map((tool) => [tool.name, tool.description]),
       );
       return buildAgentSystemPrompt(agent, basePrompt, activeSkills, activeAvailableSubagents, {
         toolSnippets: fallbackToolSnippets,
         ...activePromptOptions,
-        selectedTools: activePromptOptions?.selectedTools ?? activeSelectedTools,
+        ...options,
+        selectedTools:
+          options?.selectedTools ?? activePromptOptions?.selectedTools ?? activeSelectedTools,
         injectToolGuidelines: true,
       });
     };

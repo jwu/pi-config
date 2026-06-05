@@ -49,18 +49,18 @@ debug: true
 
 当前 custom-agent 已对齐 `pi-subagents/extensions/agent-loader.ts` 的核心字段：
 
-| field | default | note |
-| --- | --- | --- |
-| `name` | required | agent 名称 |
-| `description` | optional | 展示说明 |
-| `tools` | `[]` | CSV，如 `read, subagent` |
-| `skills` | `undefined` | CSV，支持 wildcard，如 `obsidian-*` |
-| `model` | optional | `provider/model` |
-| `thinking` | `off` | custom-agent 额外允许 `minimal`、`xhigh` |
-| `allowedAgents` | `undefined` | 会和实际存在的 agent 名称取交集 |
-| `systemPrompt` | `append` | `replace` 或 `append` |
-| `maxDepth` | `10` | 保留字段，方便和 pi-subagents 对齐 |
-| `debug` | `false` | 保留字段，方便和 pi-subagents 对齐 |
+| field           | default     | note                                     |
+| --------------- | ----------- | ---------------------------------------- |
+| `name`          | required    | agent 名称                               |
+| `description`   | optional    | 展示说明                                 |
+| `tools`         | `[]`        | CSV，如 `read, subagent`                 |
+| `skills`        | `undefined` | CSV，支持 wildcard，如 `obsidian-*`      |
+| `model`         | optional    | `provider/model`                         |
+| `thinking`      | `off`       | custom-agent 额外允许 `minimal`、`xhigh` |
+| `allowedAgents` | `undefined` | 会和实际存在的 agent 名称取交集          |
+| `systemPrompt`  | `append`    | `replace` 或 `append`                    |
+| `maxDepth`      | `10`        | 保留字段，方便和 pi-subagents 对齐       |
+| `debug`         | `false`     | 保留字段，方便和 pi-subagents 对齐       |
 
 刻意差异：
 
@@ -142,7 +142,7 @@ pi --agent debug-subagent-replace
 /debug-system-prompt
 ```
 
-注意：`/debug-system-prompt` 走 `promptBridge.getPrompt(ctx.getSystemPrompt())`。因此 custom-agent 的 bridge 也必须传入和 `before_agent_start` 相同的 prompt injection options，否则预览结果会和实际 agent prompt 不一致。
+注意：`/debug-system-prompt` 走 `promptBridge.getPrompt(ctx.getSystemPrompt(), ctx.getSystemPromptOptions())`。新的 `ctx.getSystemPromptOptions()` 能在命令里拿到 Pi 当前构建 base prompt 的结构化输入，因此 custom-agent 的 bridge 不再依赖上一次 `before_agent_start` 缓存，首次对话前预览也能更接近实际 agent prompt。
 
 ## Migration checklist
 

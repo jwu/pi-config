@@ -9,10 +9,18 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { type ExtensionAPI, type ExtensionCommandContext } from '@earendil-works/pi-coding-agent';
+import {
+  type BuildSystemPromptOptions,
+  type ExtensionAPI,
+  type ExtensionCommandContext,
+} from '@earendil-works/pi-coding-agent';
 
 interface CustomAgentSystemPromptBridge {
-  getPrompt?: (basePrompt: string) => string | undefined;
+  getPrompt?: (basePrompt: string, options?: BuildSystemPromptOptions) => string | undefined;
+}
+
+interface SystemPromptOptionsCommandContext extends ExtensionCommandContext {
+  getSystemPromptOptions?: () => BuildSystemPromptOptions;
 }
 
 const SYSTEM_PROMPT_BRIDGE = Symbol.for('pi-config.custom-agent.systemPromptBridge');
@@ -20,8 +28,8 @@ const systemPromptBridge = globalThis as typeof globalThis & {
   [SYSTEM_PROMPT_BRIDGE]?: CustomAgentSystemPromptBridge;
 };
 
-function getSystemPrompt(basePrompt: string): string {
-  return systemPromptBridge[SYSTEM_PROMPT_BRIDGE]?.getPrompt?.(basePrompt) ?? basePrompt;
+function getSystemPrompt(basePrompt: string, options?: BuildSystemPromptOptions): string {
+  return systemPromptBridge[SYSTEM_PROMPT_BRIDGE]?.getPrompt?.(basePrompt, options) ?? basePrompt;
 }
 
 function writeTerminalControl(sequence: string): void {
@@ -45,7 +53,10 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand('debug-system-prompt', {
     description: 'Preview the current system prompt in external editor',
     handler: async (_args, ctx) => {
-      const prompt = getSystemPrompt(ctx.getSystemPrompt());
+      const prompt = getSystemPrompt(
+        ctx.getSystemPrompt(),
+        (ctx as SystemPromptOptionsCommandContext).getSystemPromptOptions?.(),
+      );
       if (!prompt) {
         ctx.ui.notify("No system prompt available. The agent hasn't started yet.", 'info');
         return;

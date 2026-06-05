@@ -7,7 +7,12 @@ const bridgeSymbol = Symbol.for('pi-config.custom-agent.systemPromptBridge');
 describe('debug-system-prompt helpers', () => {
   test('uses custom-agent prompt bridge when present', () => {
     const globalWithBridge = globalThis as typeof globalThis & {
-      [bridgeSymbol]?: { getPrompt?: (basePrompt: string) => string | undefined };
+      [bridgeSymbol]?: {
+        getPrompt?: (
+          basePrompt: string,
+          options?: { selectedTools?: string[] },
+        ) => string | undefined;
+      };
     };
     const previous = globalWithBridge[bridgeSymbol];
     globalWithBridge[bridgeSymbol] = { getPrompt: (basePrompt) => `${basePrompt}\ncustom` };
@@ -19,9 +24,38 @@ describe('debug-system-prompt helpers', () => {
     }
   });
 
+  test('passes system prompt options to custom-agent prompt bridge', () => {
+    const globalWithBridge = globalThis as typeof globalThis & {
+      [bridgeSymbol]?: {
+        getPrompt?: (
+          basePrompt: string,
+          options?: { selectedTools?: string[] },
+        ) => string | undefined;
+      };
+    };
+    const previous = globalWithBridge[bridgeSymbol];
+    globalWithBridge[bridgeSymbol] = {
+      getPrompt: (basePrompt, options) =>
+        `${basePrompt}\ntools:${options?.selectedTools?.join(',') ?? 'none'}`,
+    };
+
+    try {
+      expect(getSystemPrompt('base', { selectedTools: ['read', 'subagent'], cwd: '/tmp' })).toBe(
+        'base\ntools:read,subagent',
+      );
+    } finally {
+      globalWithBridge[bridgeSymbol] = previous;
+    }
+  });
+
   test('falls back to base prompt without bridge', () => {
     const globalWithBridge = globalThis as typeof globalThis & {
-      [bridgeSymbol]?: { getPrompt?: (basePrompt: string) => string | undefined };
+      [bridgeSymbol]?: {
+        getPrompt?: (
+          basePrompt: string,
+          options?: { selectedTools?: string[] },
+        ) => string | undefined;
+      };
     };
     const previous = globalWithBridge[bridgeSymbol];
     delete globalWithBridge[bridgeSymbol];
