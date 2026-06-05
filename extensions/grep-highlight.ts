@@ -151,8 +151,7 @@ export const __testing = {
   stringArg,
 };
 
-export default function (pi: ExtensionAPI): void {
-  const cwd = process.cwd();
+function registerGrepHighlightTool(pi: ExtensionAPI, cwd: string): void {
   const grep = createGrepToolDefinition(cwd);
 
   pi.registerTool({
@@ -195,5 +194,17 @@ export default function (pi: ExtensionAPI): void {
       component.setText(text);
       return component;
     },
+  });
+}
+
+export default function (pi: ExtensionAPI): void {
+  const cwd = process.cwd();
+
+  // Register after pi has created the built-in tool registry. If this override is
+  // registered during extension load, pi treats it as a new extension tool and
+  // enables it by default. Delaying registration preserves the built-in grep
+  // active/inactive state while still replacing grep once the user enables it.
+  pi.on('session_start', () => {
+    registerGrepHighlightTool(pi, cwd);
   });
 }

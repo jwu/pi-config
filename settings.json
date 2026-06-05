@@ -13,7 +13,6 @@
     "npm:@johnnywu/pi-subagents",
     "npm:@johnnywu/pi-webfetch",
     "npm:pi-animations",
-    "npm:pi-intercom",
     "npm:pi-powerline"
   ],
   "tools": [
