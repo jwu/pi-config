@@ -80,16 +80,19 @@ interface PathPart {
   start: number;
 }
 
-type SelectListTruncatePrimary = (
-  this: unknown,
+interface DisplaySegment {
+  text: string;
+  start?: number;
+}
+
+type TruncatePrimary = (
   item: AutocompleteItem,
   isSelected: boolean,
   maxWidth: number,
   columnWidth: number,
 ) => string;
 
-type SelectListRenderItem = (
-  this: SelectListInstanceWithTheme,
+type RenderItem = (
   item: AutocompleteItem,
   isSelected: boolean,
   width: number,
@@ -97,19 +100,14 @@ type SelectListRenderItem = (
   primaryColumnWidth: number,
 ) => string;
 
-type SelectListThemeLike = {
-  selectedPrefix?: (text: string) => string;
-};
-
-type SelectListInstanceWithTheme = {
-  theme?: SelectListThemeLike;
-};
+type SelectListThemeLike = { selectedPrefix?: HighlightStyle };
+type SelectListInstanceWithTheme = { theme?: SelectListThemeLike };
 
 type SelectListPrototypeWithPatch = {
-  truncatePrimary?: SelectListTruncatePrimary;
-  renderItem?: SelectListRenderItem;
-  __piConfigFuzzyAtOriginalTruncatePrimary?: SelectListTruncatePrimary;
-  __piConfigFuzzyAtOriginalRenderItem?: SelectListRenderItem;
+  truncatePrimary?: TruncatePrimary;
+  renderItem?: RenderItem;
+  __piConfigFuzzyAtOriginalTruncatePrimary?: TruncatePrimary;
+  __piConfigFuzzyAtOriginalRenderItem?: RenderItem;
 };
 
 function extractAtToken(textBeforeCursor: string): AtToken | undefined {
@@ -190,132 +188,97 @@ function computeBonus(prev: number, curr: number): number {
   return 0;
 }
 
-class SnacksLikeScorer {
-  private consecutive = 0;
-  private firstBonus = 0;
-  private prev: number | undefined;
-  private prevClass = CHAR_WHITE;
-  private score = 0;
+function scorePositions(text: string, positions: number[]): number {
+  const first = positions[0];
+  let consecutive = 0;
+  let firstBonus = 0;
+  let prev: number | undefined;
+  let prevClass = first !== undefined && first > 0 ? charClass(text[first - 1]) : CHAR_WHITE;
+  let score = 0;
 
-  constructor(
-    private readonly text: string,
-    private readonly filenameBonus: boolean,
-  ) {}
-
-  init(first: number): void {
-    this.consecutive = 0;
-    this.firstBonus = 0;
-    this.prev = undefined;
-    this.prevClass = first > 0 ? charClass(this.text[first - 1]) : CHAR_WHITE;
-    this.score = 0;
-
-    if (
-      this.filenameBonus &&
-      !this.text.includes('/', first + 1) &&
-      !this.text.includes('\\', first + 1)
-    ) {
-      this.score += BONUS_NO_PATH_SEP;
-    }
-
-    this.update(first);
+  if (first !== undefined && !text.includes('/', first + 1) && !text.includes('\\', first + 1)) {
+    score += BONUS_NO_PATH_SEP;
   }
 
-  update(pos: number): void {
-    const currentClass = charClass(this.text[pos]);
-    const gap = this.prev === undefined ? 0 : pos - this.prev - 1;
-    let bonus = 0;
+  for (const pos of positions) {
+    const currentClass = charClass(text[pos]);
+    const gap = prev === undefined ? 0 : pos - prev - 1;
+    let bonus = computeBonus(gap > 0 ? charClass(text[pos - 1]) : prevClass, currentClass);
 
     if (gap > 0) {
-      this.prevClass = charClass(this.text[pos - 1]);
-      bonus = computeBonus(this.prevClass, currentClass);
-      this.score += SCORE_GAP_START + (gap - 1) * SCORE_GAP_EXTENSION;
-      this.consecutive = 0;
-      this.firstBonus = 0;
+      score += SCORE_GAP_START + (gap - 1) * SCORE_GAP_EXTENSION;
+      consecutive = 0;
+      firstBonus = 0;
+    } else if (consecutive === 0) {
+      firstBonus = bonus;
+      consecutive += 1;
     } else {
-      bonus = computeBonus(this.prevClass, currentClass);
-      if (this.consecutive === 0) {
-        this.firstBonus = bonus;
-      } else {
-        if (bonus >= BONUS_BOUNDARY && bonus > this.firstBonus) {
-          this.firstBonus = bonus;
-        }
-        bonus = Math.max(bonus, this.firstBonus, BONUS_CONSECUTIVE);
-      }
-      this.consecutive += 1;
+      if (bonus >= BONUS_BOUNDARY && bonus > firstBonus) firstBonus = bonus;
+      bonus = Math.max(bonus, firstBonus, BONUS_CONSECUTIVE);
+      consecutive += 1;
     }
 
-    if (this.prev === undefined) {
-      bonus *= BONUS_FIRST_CHAR_MULTIPLIER;
-    }
-
-    this.score += SCORE_MATCH + bonus;
-    this.prevClass = currentClass;
-    this.prev = pos;
+    score += SCORE_MATCH + (prev === undefined ? bonus * BONUS_FIRST_CHAR_MULTIPLIER : bonus);
+    prevClass = currentClass;
+    prev = pos;
   }
 
-  value(): number {
-    return this.score;
-  }
+  return score;
 }
 
-function fuzzyFindMatch(
+function findTokenPositions(
   searchText: string,
-  displayText: string,
   chars: string[],
-  init = 0,
-): FuzzyMatch | undefined {
-  const first = searchText.indexOf(chars[0] ?? '', init);
-  if (first < 0) return undefined;
-
-  const scorer = new SnacksLikeScorer(displayText, true);
-  scorer.init(first);
-
+  first: number,
+): number[] | undefined {
   const positions = [first];
   let last = first;
-  for (let index = 1; index < chars.length; index += 1) {
-    last = searchText.indexOf(chars[index] ?? '', last + 1);
+
+  for (const char of chars.slice(1)) {
+    last = searchText.indexOf(char, last + 1);
     if (last < 0) return undefined;
     positions.push(last);
-    scorer.update(last);
   }
 
-  return { score: scorer.value(), positions };
+  return positions;
+}
+
+function fuzzyMatchToken(path: string, token: string): FuzzyMatch | undefined {
+  const ignoreCase = isLower(token);
+  const searchText = ignoreCase ? path.toLowerCase() : path;
+  const chars = Array.from(ignoreCase ? token.toLowerCase() : token);
+  let bestMatch: FuzzyMatch | undefined;
+
+  for (
+    let first = searchText.indexOf(chars[0] ?? '');
+    first >= 0;
+    first = searchText.indexOf(chars[0] ?? '', first + 1)
+  ) {
+    const positions = findTokenPositions(searchText, chars, first);
+    if (!positions) continue;
+
+    const match = { score: scorePositions(path, positions), positions };
+    if (!bestMatch || match.score > bestMatch.score) bestMatch = match;
+  }
+
+  return bestMatch;
 }
 
 function fuzzyMatchPath(path: string, query: string): FuzzyMatch | undefined {
-  const trimmedQuery = query.trim();
-  if (!trimmedQuery) return undefined;
+  const tokens = query.trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return undefined;
 
-  let totalScore = 0;
+  let score = 0;
   const positions: number[] = [];
-  const tokens = trimmedQuery.split(/\s+/).filter(Boolean);
 
   for (const token of tokens) {
-    const ignoreCase = isLower(token);
-    const searchText = ignoreCase ? path.toLowerCase() : path;
-    const normalizedToken = ignoreCase ? token.toLowerCase() : token;
-    const chars = Array.from(normalizedToken);
-
-    let bestMatch: FuzzyMatch | undefined;
-    let init = 0;
-
-    while (init < searchText.length) {
-      const first = searchText.indexOf(chars[0] ?? '', init);
-      if (first < 0) break;
-
-      const match = fuzzyFindMatch(searchText, path, chars, first);
-      if (match && (!bestMatch || match.score > bestMatch.score)) {
-        bestMatch = match;
-      }
-      init = first + 1;
-    }
-
-    if (!bestMatch) return undefined;
-    totalScore += bestMatch.score;
-    positions.push(...bestMatch.positions);
+    const match = fuzzyMatchToken(path, token);
+    if (!match) return undefined;
+    score += match.score;
+    positions.push(...match.positions);
   }
 
-  return { score: totalScore, positions };
+  return { score, positions };
 }
 
 function fuzzyScorePath(path: string, query: string): number | undefined {
@@ -402,53 +365,41 @@ function sliceEndToWidth(text: string, maxWidth: number): string {
   return sliced;
 }
 
-function truncateLeftWithMap(
-  text: string,
-  start: number,
-  maxWidth: number,
-): { text: string; map: number[] } {
+function truncateLeftSegments(text: string, start: number, maxWidth: number): DisplaySegment[] {
   const markerWidth = visibleWidth(PATH_TRUNCATION_MARKER);
-  if (visibleWidth(text) <= maxWidth) {
-    return { text, map: Array.from({ length: text.length }, (_value, index) => start + index) };
-  }
-  if (maxWidth <= markerWidth) {
-    return { text: sliceEndToWidth(PATH_TRUNCATION_MARKER, maxWidth), map: [] };
-  }
+  if (visibleWidth(text) <= maxWidth) return [{ text, start }];
+  if (maxWidth <= markerWidth) return [{ text: sliceEndToWidth(PATH_TRUNCATION_MARKER, maxWidth) }];
 
   const tail = sliceEndToWidth(text, maxWidth - markerWidth);
-  const tailStart = text.length - tail.length;
-  return {
-    text: PATH_TRUNCATION_MARKER + tail,
-    map: [
-      ...Array.from({ length: PATH_TRUNCATION_MARKER.length }, () => -1),
-      ...Array.from(tail, (_char, index) => start + tailStart + index),
-    ],
-  };
+  return [
+    { text: PATH_TRUNCATION_MARKER },
+    { text: tail, start: start + text.length - tail.length },
+  ];
 }
 
-function mapDisplayPositions(
-  positions: number[],
-  mappedParts: Array<{ text: string; start?: number; map?: number[] }>,
-): number[] {
-  const originalToDisplay = new Map<number, number>();
-  let displayIndex = 0;
+function buildDisplayPath(positions: number[], segments: DisplaySegment[]): DisplayPath {
+  const text = segments.map((segment) => segment.text).join('');
+  const mappedPositions = positions
+    .map((position) => {
+      let displayIndex = 0;
 
-  for (const part of mappedParts) {
-    if (part.map) {
-      part.map.forEach((originalIndex, index) => {
-        if (originalIndex >= 0) originalToDisplay.set(originalIndex, displayIndex + index);
-      });
-    } else if (part.start !== undefined) {
-      for (let index = 0; index < part.text.length; index += 1) {
-        originalToDisplay.set(part.start + index, displayIndex + index);
+      for (const segment of segments) {
+        const segmentStart = segment.start;
+        if (
+          segmentStart !== undefined &&
+          position >= segmentStart &&
+          position < segmentStart + segment.text.length
+        ) {
+          return displayIndex + position - segmentStart;
+        }
+        displayIndex += segment.text.length;
       }
-    }
-    displayIndex += part.text.length;
-  }
 
-  return positions
-    .map((position) => originalToDisplay.get(position))
+      return undefined;
+    })
     .filter((position): position is number => position !== undefined);
+
+  return { text, positions: mappedPositions };
 }
 
 function snacksTruncatePath(path: string, maxWidth: number, positions: number[] = []): DisplayPath {
@@ -477,24 +428,18 @@ function snacksTruncatePath(path: string, maxWidth: number, positions: number[] 
       normalizedPath,
       Math.max(0, maxWidth - visibleWidth(PATH_TRUNCATION_MARKER)),
     );
-    const text = PATH_TRUNCATION_MARKER + truncated;
-    const start = normalizedPath.length - truncated.length;
-    const mappedParts = [
-      { text: PATH_TRUNCATION_MARKER, map: [-1] },
-      { text: truncated, start },
-    ];
-    return { text, positions: mapDisplayPositions(positions, mappedParts) };
+    return buildDisplayPath(positions, [
+      { text: PATH_TRUNCATION_MARKER },
+      { text: truncated, start: normalizedPath.length - truncated.length },
+    ]);
   }
 
   const basenameWidth = maxWidth - visibleWidth(first.text) - visibleWidth(marker);
   let tailText = last.text;
-  let tailStart = last.start;
-  let tailMap: number[] | undefined;
+  let tailSegments: DisplaySegment[] = [{ text: last.text, start: last.start }];
 
   if (visibleWidth(first.text) + visibleWidth(marker) + visibleWidth(tailText) > maxWidth) {
-    const truncatedTail = truncateLeftWithMap(last.text, last.start, basenameWidth);
-    tailText = truncatedTail.text;
-    tailMap = truncatedTail.map;
+    tailSegments = truncateLeftSegments(last.text, last.start, basenameWidth);
   } else {
     let width = visibleWidth(first.text) + visibleWidth(marker) + visibleWidth(tailText);
 
@@ -504,18 +449,16 @@ function snacksTruncatePath(path: string, maxWidth: number, positions: number[] 
       const nextWidth = visibleWidth(first.text) + visibleWidth(marker) + visibleWidth(next);
       if (nextWidth > maxWidth || nextWidth <= width) break;
       tailText = next;
-      tailStart = part.start;
+      tailSegments = [{ text: tailText, start: part.start }];
       width = nextWidth;
     }
   }
 
-  const text = `${first.text}${marker}${tailText}`;
-  const mappedParts = [
+  return buildDisplayPath(positions, [
     { text: first.text, start: first.start },
-    { text: marker, map: Array.from({ length: marker.length }, () => -1) },
-    tailMap ? { text: tailText, map: tailMap } : { text: tailText, start: tailStart },
-  ];
-  return { text, positions: mapDisplayPositions(positions, mappedParts) };
+    { text: marker },
+    ...tailSegments,
+  ]);
 }
 
 function getFuzzyAtMeta(item: AutocompleteItem): FuzzyAtPathMeta | undefined {
