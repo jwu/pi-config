@@ -20,6 +20,19 @@ my/path/foobar.md
 @mpafbar -> my/path/foobar.md
 ```
 
+也支持带 `/` 的目录 query：
+
+```text
+@foobar/
+```
+
+匹配：
+
+```text
+path/to/foobar/
+path/to/foobar/a.txt
+```
+
 ## Background
 
 pi 内置 `@` 补全主要由 `CombinedAutocompleteProvider` 实现：
@@ -130,9 +143,9 @@ rg --files --no-messages --color never -g '!.git'
 find . -type f -not -path '*/.git/*'
 ```
 
-注意：这比 pi 内置 `@` 的 `fd` 参数更接近 Snacks 默认 files source：主要枚举文件和 symlink，不枚举目录。内置 pi 会补全目录；本扩展当前重点是文件 fuzzy 查找。
+注意：这比 pi 内置 `@` 的 `fd` 参数更接近 Snacks 默认 files source：主要枚举文件和 symlink。为了支持 `dir/` query，本扩展会从已枚举文件推导父目录候选，并用 trailing slash 展示，例如 `path/to/foobar/`。
 
-文件列表会按 `cwd` 缓存：
+候选列表会按 `cwd` 缓存：
 
 ```ts
 const CACHE_TTL_MS = 15_000;
@@ -165,7 +178,8 @@ filterFuzzyPaths(paths, query);
 - 每个 token 都必须匹配；
 - lowercase query 走 ignorecase；
 - 包含大写时走 smartcase 风格区分大小写；
-- 在完整路径上匹配，不只匹配 basename。
+- 在完整路径上匹配，不只匹配 basename；
+- 文件的父目录会作为 `dir/` 候选加入，因此 `foobar/` 可以同时匹配 `path/to/foobar/` 和 `path/to/foobar/a.txt`。
 
 ## Scoring model
 
@@ -299,6 +313,7 @@ applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
 - `@` token 提取；
 - quoted `@"...` token 提取；
 - `my/path/foobar.md` 对 `mpafbar` / `myfbar` 的子序列匹配；
+- `foobar/` 同时匹配推导出的 `path/to/foobar/` 和后代文件；
 - fuzzy 结果包含 match positions；
 - Snacks 默认排序字段：`score:desc -> #text:asc -> idx:asc`；
 - warning 高亮 span 生成；
@@ -353,16 +368,28 @@ bun tsc --noEmit --ignoreConfig ... extensions/fuzzy-at.ts ✅
 my/path/foobar.md
 ```
 
+输入：
+
+```text
+@foobar/
+```
+
+也应该能看到类似：
+
+```text
+path/to/foobar/
+path/to/foobar/a.txt
+```
+
 并且命中的字符用当前 theme 的 `warning` 色高亮。
 
 ## Future work
 
 可选优化方向：
 
-1. 枚举目录候选
-   - 自定义 fuzzy 枚举当前更贴近 Snacks files source，只枚举 file / symlink。
-   - 空 `@` 或 fallback 到内置 provider 时仍可能显示目录。
-   - 如果想让非空 query 的 fuzzy 也补全目录，可以加入 directory enumeration。
+1. 枚举空目录候选
+   - 当前 `dir/` 候选来自已枚举文件的父目录，因此能覆盖包含文件的目录。
+   - 空目录没有后代文件可推导，仍需要额外 directory enumeration 才能出现在非空 query 的 fuzzy 结果里。
 2. 更长缓存或文件 watcher invalidation
    - 当前 TTL 是 15 秒。
    - 大仓库里可以考虑更长 TTL 或 watch invalidation。

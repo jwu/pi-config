@@ -45,6 +45,15 @@ describe('fuzzy @ autocomplete helpers', () => {
     expect(matches[0]?.positions.length).toBe('myfbar'.length);
   });
 
+  test('matches directory slash queries against directory and descendant file candidates', () => {
+    const paths = uniquePaths(['path/to/foobar/a.txt']);
+    const matches = filterFuzzyPaths(paths, 'foobar/');
+    expect(matches.map((match) => match.path)).toEqual([
+      'path/to/foobar/',
+      'path/to/foobar/a.txt',
+    ]);
+  });
+
   test('sorts fuzzy paths with snacks default fields: score desc, text length asc, stable idx', () => {
     const paths = ['a/long/b.ts', 'a/b.ts'];
     const matches = filterFuzzyPaths(paths, 'a');
@@ -81,6 +90,10 @@ describe('fuzzy @ autocomplete helpers', () => {
       positions: [0, 6, 8, 9],
     });
     expect(snacksTruncatePath('a/b/superlongfilename.md', 12).text).toBe('a/…/…name.md');
+    expect(snacksTruncatePath('path/to/foobar/', 80, [8, 14])).toEqual({
+      text: 'path/to/foobar/',
+      positions: [8, 14],
+    });
   });
 
   test('converts delegated empty @ suggestions to single-column full paths', () => {
@@ -125,9 +138,15 @@ describe('fuzzy @ autocomplete helpers', () => {
     );
   });
 
-  test('normalizes, deduplicates, and stabilizes finder paths', () => {
+  test('normalizes, deduplicates, stabilizes, and adds parent directory candidates', () => {
     expect(normalizeFinderPath('./my/path/foobar.md')).toBe('my/path/foobar.md');
     expect(uniquePaths(['b.ts', './a.ts', 'a.ts', '.git/config', ''])).toEqual(['a.ts', 'b.ts']);
+    expect(uniquePaths(['./path/to/foobar/a.txt'])).toEqual([
+      'path/',
+      'path/to/',
+      'path/to/foobar/',
+      'path/to/foobar/a.txt',
+    ]);
     expect(['b.ts', 'a.ts'].sort(comparePath)).toEqual(['a.ts', 'b.ts']);
   });
 

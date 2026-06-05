@@ -138,16 +138,37 @@ function comparePath(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
+function parentDirectoryCandidates(path: string): string[] {
+  const trimmed = path.replace(/\/+$/, '');
+  const parts = trimmed.split('/').filter(Boolean);
+  const directories: string[] = [];
+
+  for (let index = 1; index < parts.length; index += 1) {
+    directories.push(`${parts.slice(0, index).join('/')}/`);
+  }
+
+  return directories;
+}
+
 function uniquePaths(paths: string[]): string[] {
   const seen = new Set<string>();
   const unique: string[] = [];
 
+  const addPath = (path: string) => {
+    if (!path || path === '.git' || path.startsWith('.git/')) return;
+    if (seen.has(path)) return;
+    seen.add(path);
+    unique.push(path);
+  };
+
   for (const rawPath of paths) {
     const path = normalizeFinderPath(rawPath);
     if (!path || path === '.git' || path.startsWith('.git/')) continue;
-    if (seen.has(path)) continue;
-    seen.add(path);
-    unique.push(path);
+
+    for (const directory of parentDirectoryCandidates(path)) {
+      addPath(directory);
+    }
+    addPath(path);
   }
 
   return unique.sort(comparePath);
@@ -403,42 +424,58 @@ function buildDisplayPath(positions: number[], segments: DisplaySegment[]): Disp
 }
 
 function snacksTruncatePath(path: string, maxWidth: number, positions: number[] = []): DisplayPath {
-  const normalizedPath = path.replace(/\\/g, '/').replace(/\/$/, '');
+  const slashNormalizedPath = path.replace(/\\/g, '/');
+  const hasTrailingSlash = slashNormalizedPath.length > 1 && slashNormalizedPath.endsWith('/');
+  const normalizedPath = hasTrailingSlash
+    ? slashNormalizedPath.replace(/\/+$/, '')
+    : slashNormalizedPath;
   const marker = `/${PATH_TRUNCATION_MARKER}/`;
+
+  const finish = (display: DisplayPath): DisplayPath => {
+    if (!hasTrailingSlash) return display;
+
+    const slashIndex = normalizedPath.length;
+    const slashPositions = positions.includes(slashIndex) ? [display.text.length] : [];
+    return { text: `${display.text}/`, positions: [...display.positions, ...slashPositions] };
+  };
 
   if (maxWidth <= 0) {
     return { text: '', positions: [] };
   }
 
-  if (visibleWidth(normalizedPath) <= maxWidth) {
-    return { text: normalizedPath, positions };
+  const fullPath = hasTrailingSlash ? `${normalizedPath}/` : normalizedPath;
+  if (visibleWidth(fullPath) <= maxWidth) {
+    return { text: fullPath, positions };
   }
 
+  const contentMaxWidth = hasTrailingSlash ? Math.max(0, maxWidth - 1) : maxWidth;
   const parts = splitPathParts(normalizedPath);
   if (parts.length < 2) {
-    return { text: normalizedPath, positions };
+    return finish({ text: normalizedPath, positions });
   }
 
   const first = parts[0]!;
   const last = parts[parts.length - 1]!;
   const minimumWidth = visibleWidth(first.text) + visibleWidth(marker);
 
-  if (maxWidth <= minimumWidth + 1) {
+  if (contentMaxWidth <= minimumWidth + 1) {
     const truncated = sliceEndToWidth(
       normalizedPath,
-      Math.max(0, maxWidth - visibleWidth(PATH_TRUNCATION_MARKER)),
+      Math.max(0, contentMaxWidth - visibleWidth(PATH_TRUNCATION_MARKER)),
     );
-    return buildDisplayPath(positions, [
-      { text: PATH_TRUNCATION_MARKER },
-      { text: truncated, start: normalizedPath.length - truncated.length },
-    ]);
+    return finish(
+      buildDisplayPath(positions, [
+        { text: PATH_TRUNCATION_MARKER },
+        { text: truncated, start: normalizedPath.length - truncated.length },
+      ]),
+    );
   }
 
-  const basenameWidth = maxWidth - visibleWidth(first.text) - visibleWidth(marker);
+  const basenameWidth = contentMaxWidth - visibleWidth(first.text) - visibleWidth(marker);
   let tailText = last.text;
   let tailSegments: DisplaySegment[] = [{ text: last.text, start: last.start }];
 
-  if (visibleWidth(first.text) + visibleWidth(marker) + visibleWidth(tailText) > maxWidth) {
+  if (visibleWidth(first.text) + visibleWidth(marker) + visibleWidth(tailText) > contentMaxWidth) {
     tailSegments = truncateLeftSegments(last.text, last.start, basenameWidth);
   } else {
     let width = visibleWidth(first.text) + visibleWidth(marker) + visibleWidth(tailText);
@@ -447,18 +484,20 @@ function snacksTruncatePath(path: string, maxWidth: number, positions: number[] 
       const part = parts[index]!;
       const next = `${part.text}/${tailText}`;
       const nextWidth = visibleWidth(first.text) + visibleWidth(marker) + visibleWidth(next);
-      if (nextWidth > maxWidth || nextWidth <= width) break;
+      if (nextWidth > contentMaxWidth || nextWidth <= width) break;
       tailText = next;
       tailSegments = [{ text: tailText, start: part.start }];
       width = nextWidth;
     }
   }
 
-  return buildDisplayPath(positions, [
-    { text: first.text, start: first.start },
-    { text: marker },
-    ...tailSegments,
-  ]);
+  return finish(
+    buildDisplayPath(positions, [
+      { text: first.text, start: first.start },
+      { text: marker },
+      ...tailSegments,
+    ]),
+  );
 }
 
 function getFuzzyAtMeta(item: AutocompleteItem): FuzzyAtPathMeta | undefined {
