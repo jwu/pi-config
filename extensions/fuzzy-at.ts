@@ -331,15 +331,15 @@ function quoteCompletionPath(path: string, quoted: boolean): string {
   return `@${path}`;
 }
 
-function warningAnsi(text: string): string {
-  return `\x1b[33m${text}\x1b[39m`;
+function accentAnsi(text: string): string {
+  return `\x1b[34m${text}\x1b[39m`;
 }
 
 function highlightPositions(
   text: string,
   positions: number[],
   offset = 0,
-  style: HighlightStyle = warningAnsi,
+  style: HighlightStyle = accentAnsi,
 ): string {
   const matched = new Set(positions.map((position) => position - offset));
   let highlighted = '';
@@ -783,7 +783,7 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on('session_start', (_event, ctx) => {
     ctx.ui.addAutocompleteProvider((current) =>
-      createFuzzyAtProvider(current, getPaths, ctx.cwd, (text) => ctx.ui.theme.fg('warning', text)),
+      createFuzzyAtProvider(current, getPaths, ctx.cwd, (text) => ctx.ui.theme.fg('accent', text)),
     );
   });
 }

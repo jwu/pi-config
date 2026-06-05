@@ -100,7 +100,7 @@ tests/fuzzy-at.test.ts
 ```ts
 pi.on('session_start', (_event, ctx) => {
   ctx.ui.addAutocompleteProvider((current) =>
-    createFuzzyAtProvider(current, getPaths, ctx.cwd, (text) => ctx.ui.theme.fg('warning', text)),
+    createFuzzyAtProvider(current, getPaths, ctx.cwd, (text) => ctx.ui.theme.fg('accent', text)),
   );
 });
 ```
@@ -236,10 +236,10 @@ interface FuzzyMatch {
 label: highlightPositions(match.path, match.positions, 0, highlightStyle);
 ```
 
-当前高亮颜色使用 pi 当前主题的 `warning`：
+当前高亮颜色使用 pi 当前主题的 `accent`：
 
 ```ts
-(text) => ctx.ui.theme.fg('warning', text);
+(text) => ctx.ui.theme.fg('accent', text);
 ```
 
 这样能跟用户主题保持一致。
@@ -316,7 +316,7 @@ applyCompletion(lines, cursorLine, cursorCol, item, prefix) {
 - `foobar/` 同时匹配推导出的 `path/to/foobar/` 和后代文件；
 - fuzzy 结果包含 match positions；
 - Snacks 默认排序字段：`score:desc -> #text:asc -> idx:asc`；
-- warning 高亮 span 生成；
+- accent 高亮 span 生成；
 - full path 单列候选展示；
 - 长路径中间折叠和 position remap；
 - 空 `@` 时内置候选转换为单列 full path；
@@ -381,7 +381,7 @@ path/to/foobar/
 path/to/foobar/a.txt
 ```
 
-并且命中的字符用当前 theme 的 `warning` 色高亮。
+并且命中的字符用当前 theme 的 `accent` 色高亮。
 
 ## Future work
 

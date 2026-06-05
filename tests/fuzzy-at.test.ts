@@ -69,26 +69,26 @@ describe('fuzzy @ autocomplete helpers', () => {
     expect(matches.map((match) => match.path)).toEqual(['a/b.ts', 'a/long/b.ts']);
   });
 
-  test('highlights matched positions with warning-colored spans', () => {
+  test('highlights matched positions with accent-colored spans', () => {
     expect(
-      highlightPositions('foobar.md', [0, 3, 4], 0, (text) => `<warning>${text}</warning>`),
-    ).toBe('<warning>f</warning>oo<warning>ba</warning>r.md');
-    expect(highlightPositions('foobar.md', [3, 4], 3, (text) => `<warning>${text}</warning>`)).toBe(
-      '<warning>fo</warning>obar.md',
+      highlightPositions('foobar.md', [0, 3, 4], 0, (text) => `<accent>${text}</accent>`),
+    ).toBe('<accent>f</accent>oo<accent>ba</accent>r.md');
+    expect(highlightPositions('foobar.md', [3, 4], 3, (text) => `<accent>${text}</accent>`)).toBe(
+      '<accent>fo</accent>obar.md',
     );
-    expect(highlightPositions('foobar.md', [0])).toBe('\x1b[33mf\x1b[39moobar.md');
+    expect(highlightPositions('foobar.md', [0])).toBe('\x1b[34mf\x1b[39moobar.md');
   });
 
   test('formats autocomplete candidates as full paths instead of basename plus description', () => {
     const item = toAutocompleteItem(
       { path: 'my/path/foobar.md', score: 1, positions: [0, 3, 8], index: 0 },
       false,
-      (text) => `<warning>${text}</warning>`,
+      (text) => `<accent>${text}</accent>`,
     );
 
     expect(item.value).toBe('@my/path/foobar.md');
     expect(item.label).toBe(
-      '<warning>m</warning>y/<warning>p</warning>ath/<warning>f</warning>oobar.md',
+      '<accent>m</accent>y/<accent>p</accent>ath/<accent>f</accent>oobar.md',
     );
     expect(item.description).toBeUndefined();
   });
@@ -119,7 +119,7 @@ describe('fuzzy @ autocomplete helpers', () => {
           },
         ],
       },
-      (text) => `<warning>${text}</warning>`,
+      (text) => `<accent>${text}</accent>`,
     );
 
     expect(
@@ -135,7 +135,7 @@ describe('fuzzy @ autocomplete helpers', () => {
     const item = toAutocompleteItem(
       { path: 'editor/editor_node.h', score: 1, positions: [0, 7], index: 0 },
       false,
-      (text) => `<warning>${text}</warning>`,
+      (text) => `<accent>${text}</accent>`,
     );
 
     expect(
@@ -143,7 +143,7 @@ describe('fuzzy @ autocomplete helpers', () => {
         selectedPrefix: (text) => `<selected-prefix>${text}</selected-prefix>`,
       }),
     ).toBe(
-      '<selected-prefix>→ </selected-prefix><warning>e</warning>ditor/<warning>e</warning>ditor_node.h',
+      '<selected-prefix>→ </selected-prefix><accent>e</accent>ditor/<accent>e</accent>ditor_node.h',
     );
   });
 
