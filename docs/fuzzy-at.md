@@ -137,13 +137,13 @@ enumerateCandidatePaths();
 当前参数：
 
 ```text
-fd --type f --type l --color never -E .git
-fdfind --type f --type l --color never -E .git
-rg --files --no-messages --color never -g '!.git'
+fd --type f --type l --hidden --color never -E .git
+fdfind --type f --type l --hidden --color never -E .git
+rg --files --hidden --no-messages --color never -g '!.git'
 find . -type f -not -path '*/.git/*'
 ```
 
-注意：这比 pi 内置 `@` 的 `fd` 参数更接近 Snacks 默认 files source：主要枚举文件和 symlink。为了支持 `dir/` query，本扩展会从已枚举文件推导父目录候选，并用 trailing slash 展示，例如 `path/to/foobar/`。
+注意：这比 pi 内置 `@` 的 `fd` 参数更接近 Snacks 默认 files source：主要枚举文件和 symlink，并包含 hidden 文件但排除 `.git`。为了支持 `dir/` query，本扩展会从已枚举文件推导父目录候选，并用 trailing slash 展示，例如 `path/to/foobar/`。
 
 候选列表会按 `cwd` 缓存：
 

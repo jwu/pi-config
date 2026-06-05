@@ -11,6 +11,7 @@ const {
   normalizeFinderPath,
   quoteCompletionPath,
   renderFuzzyAtItem,
+  shouldCloseAtAutocomplete,
   snacksTruncatePath,
   toAutocompleteItem,
   toSinglePathAtSuggestions,
@@ -30,6 +31,14 @@ describe('fuzzy @ autocomplete helpers', () => {
       quoted: true,
     });
     expect(extractAtToken('email foo@bar')).toBeUndefined();
+  });
+
+  test('closes @ autocomplete after a trailing space instead of falling back to path completion', () => {
+    expect(shouldCloseAtAutocomplete('@ ')).toBe(true);
+    expect(shouldCloseAtAutocomplete('see @ ')).toBe(true);
+    expect(shouldCloseAtAutocomplete('see @foo ')).toBe(true);
+    expect(shouldCloseAtAutocomplete('email foo@bar ')).toBe(false);
+    expect(shouldCloseAtAutocomplete('plain text ')).toBe(false);
   });
 
   test('matches snacks-style subsequences across full paths', () => {
@@ -156,12 +165,11 @@ describe('fuzzy @ autocomplete helpers', () => {
     expect(quoteCompletionPath('my/path/foobar.md', true)).toBe('@"my/path/foobar.md"');
   });
 
-  test('uses snacks finder command fallback order', () => {
-    expect(buildFinderCommands().map((command) => command.cmd)).toEqual([
-      'fd',
-      'fdfind',
-      'rg',
-      'find',
-    ]);
+  test('uses snacks finder command fallback order and includes hidden files', () => {
+    const commands = buildFinderCommands();
+    expect(commands.map((command) => command.cmd)).toEqual(['fd', 'fdfind', 'rg', 'find']);
+    expect(commands.find((command) => command.cmd === 'fd')?.args).toContain('--hidden');
+    expect(commands.find((command) => command.cmd === 'fdfind')?.args).toContain('--hidden');
+    expect(commands.find((command) => command.cmd === 'rg')?.args).toContain('--hidden');
   });
 });

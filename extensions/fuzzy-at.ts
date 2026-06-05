@@ -130,6 +130,10 @@ function extractAtToken(textBeforeCursor: string): AtToken | undefined {
   };
 }
 
+function shouldCloseAtAutocomplete(textBeforeCursor: string): boolean {
+  return /(?:^|[ \t])@[^\s"]*[ \t]$/.test(textBeforeCursor);
+}
+
 function normalizeFinderPath(path: string): string {
   return path.trim().replace(/^\.\//, '').replace(/\\/g, '/');
 }
@@ -633,14 +637,14 @@ function toSinglePathAtSuggestions(
 }
 
 function buildFinderCommands(): FinderCommand[] {
-  const fdArgs = ['--type', 'f', '--type', 'l', '--color', 'never', '-E', '.git'];
+  const fdArgs = ['--type', 'f', '--type', 'l', '--hidden', '--color', 'never', '-E', '.git'];
 
   return [
     { cmd: 'fd', args: fdArgs, normalizePath: normalizeFinderPath },
     { cmd: 'fdfind', args: fdArgs, normalizePath: normalizeFinderPath },
     {
       cmd: 'rg',
-      args: ['--files', '--no-messages', '--color', 'never', '-g', '!.git'],
+      args: ['--files', '--hidden', '--no-messages', '--color', 'never', '-g', '!.git'],
       normalizePath: normalizeFinderPath,
     },
     {
@@ -698,6 +702,7 @@ function createFuzzyAtProvider(
       const token = extractAtToken(beforeCursor);
 
       if (!token) {
+        if (shouldCloseAtAutocomplete(beforeCursor)) return null;
         return current.getSuggestions(lines, cursorLine, cursorCol, options);
       }
 
@@ -765,6 +770,7 @@ export const __testing = {
   normalizeFinderPath,
   quoteCompletionPath,
   renderFuzzyAtItem,
+  shouldCloseAtAutocomplete,
   snacksTruncatePath,
   toAutocompleteItem,
   toSinglePathAtSuggestions,
