@@ -3,6 +3,7 @@
   "theme": "one-dark",
   "quietStartup": true,
   "enableInstallTelemetry": false,
+  "defaultProjectTrust": "always",
   "extensions": [
     "~/bin/pi-config/extensions"
   ],
