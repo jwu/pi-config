@@ -131,6 +131,63 @@ Replace instructions.
     expect(prompt.indexOf('Available tools:')).toBeLessThan(prompt.indexOf('Guidelines:'));
     expect(prompt.indexOf('Guidelines:')).toBeLessThan(prompt.indexOf('Available subagents:'));
   });
+
+  test('keeps project context in replace mode but skips it in replace-all mode', () => {
+    const replaceAgent = parseAgent(
+      `---
+name: replacer
+thinking: off
+systemPrompt: replace
+---
+
+Replace instructions.
+`,
+      '/repo/agents/replacer.md',
+      'global',
+    );
+    const replaceAllAgent = parseAgent(
+      `---
+name: isolated
+thinking: off
+systemPrompt: replace-all
+---
+
+Isolated instructions.
+`,
+      '/repo/agents/isolated.md',
+      'global',
+    );
+
+    const options = {
+      cwd: '/repo',
+      contextFiles: [{ path: 'AGENTS.md', content: 'Project rules.' }],
+      selectedTools: ['read'],
+      toolSnippets: { read: 'Read the contents of a file.' },
+      injectToolGuidelines: true,
+    };
+
+    const replacePrompt = buildAgentSystemPrompt(replaceAgent, 'base prompt', [], [], options);
+    const replaceAllPrompt = buildAgentSystemPrompt(
+      replaceAllAgent,
+      'base prompt',
+      [],
+      [],
+      options,
+    );
+
+    expect(replacePrompt).toContain('<project_instructions path="AGENTS.md">\nProject rules.');
+    expect(replacePrompt).toContain('Available tools:\n- read: Read the contents of a file.');
+    expect(replacePrompt.indexOf('</project_context>')).toBeLessThan(
+      replacePrompt.indexOf('Available tools:'),
+    );
+    expect(replacePrompt.indexOf('Available tools:')).toBeLessThan(
+      replacePrompt.indexOf('Current date:'),
+    );
+    expect(replacePrompt).toContain('Current working directory: /repo');
+
+    expect(replaceAllPrompt).not.toContain('<project_context>');
+    expect(replaceAllPrompt).toContain('Current working directory: /repo');
+  });
 });
 
 describe('custom-agent agent selection', () => {

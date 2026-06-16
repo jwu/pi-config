@@ -11,7 +11,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 
 type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'minimal' | 'xhigh';
-type SystemPromptMode = 'replace' | 'append';
+type SystemPromptMode = 'replace' | 'replace-all' | 'append';
 type AgentSource = 'global' | 'project' | 'path';
 
 /**
@@ -62,9 +62,20 @@ interface CustomAgentSystemPromptBridge {
   getPrompt?: (basePrompt: string, options?: BuildSystemPromptOptions) => string | undefined;
 }
 
-/** Mirrors the system-prompt option shape used by pi-subagents/subagent-prompt.ts. */
+/**
+ * Combines pi-subagents runtime block options with pi core custom-prompt inputs
+ * needed to emulate replace/replace-all behavior in the current session.
+ */
 interface SystemPromptInjectionOptions extends Partial<
-  Pick<BuildSystemPromptOptions, 'selectedTools' | 'toolSnippets' | 'promptGuidelines'>
+  Pick<
+    BuildSystemPromptOptions,
+    | 'selectedTools'
+    | 'toolSnippets'
+    | 'promptGuidelines'
+    | 'appendSystemPrompt'
+    | 'cwd'
+    | 'contextFiles'
+  >
 > {
   injectToolGuidelines?: boolean;
 }
@@ -399,7 +410,7 @@ function parseAgent(content: string, filePath: string, source: AgentSource): Age
   }
 
   const systemPromptMode = (data.systemPrompt ?? 'append') as SystemPromptMode;
-  if (systemPromptMode !== 'replace' && systemPromptMode !== 'append') {
+  if (!['replace', 'replace-all', 'append'].includes(systemPromptMode)) {
     throw new Error(`invalid systemPrompt: ${data.systemPrompt}`);
   }
 
@@ -696,7 +707,7 @@ function appendAvailableToolsAndGuidelinesBlock(
   options: SystemPromptInjectionOptions,
 ): string {
   const block = formatAvailableToolsAndGuidelinesBlock(options);
-  if (!block || systemPrompt.includes('Available tools:') || systemPrompt.includes('Guidelines:')) {
+  if (!block || systemPrompt.includes(block)) {
     return systemPrompt;
   }
 
@@ -759,13 +770,51 @@ function buildAgentPromptWithSkills(agent: AgentConfig, skills: ResolvedSkill[])
   return `${agent.prompt.trimEnd()}${formatSkillsForPrompt(skills)}`.trimEnd();
 }
 
+function currentDateString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function appendProjectContext(systemPrompt: string, options: SystemPromptInjectionOptions): string {
+  const contextFiles = options.contextFiles ?? [];
+  if (contextFiles.length === 0) return systemPrompt;
+
+  let prompt = `${systemPrompt}\n\n<project_context>\n\n`;
+  prompt += 'Project-specific instructions and guidelines:\n\n';
+  for (const { path: filePath, content } of contextFiles) {
+    prompt += `<project_instructions path="${filePath}">\n${content}\n</project_instructions>\n\n`;
+  }
+  prompt += '</project_context>\n';
+  return prompt;
+}
+
+function buildPiCustomSystemPrompt(
+  customPrompt: string,
+  options: SystemPromptInjectionOptions,
+  includeProjectContext: boolean,
+): string {
+  let prompt = customPrompt;
+  if (options.appendSystemPrompt) prompt += `\n\n${options.appendSystemPrompt}`;
+  if (includeProjectContext) prompt = appendProjectContext(prompt, options);
+
+  if (options.cwd) {
+    prompt += `\nCurrent date: ${currentDateString()}`;
+    prompt += `\nCurrent working directory: ${options.cwd.replace(/\\/g, '/')}`;
+  }
+
+  return prompt;
+}
+
 function appendPiSubagentsReplaceModeRuntimeBlocks(
   systemPrompt: string,
   availableSubagents: string[],
   options: SystemPromptInjectionOptions,
 ): string {
-  // Match pi-subagents ordering for replace-mode processes:
-  // agent prompt/skills -> Available tools/Guidelines -> Available subagents.
+  // Match pi-subagents ordering for replace/replace-all processes:
+  // custom prompt (+ optional project context) -> Available tools/Guidelines -> Available subagents.
   let result = options.injectToolGuidelines
     ? appendAvailableToolsAndGuidelinesBlock(systemPrompt, options)
     : systemPrompt;
@@ -785,8 +834,13 @@ function buildAgentSystemPrompt(
 ): string {
   const prompt = buildAgentPromptWithSkills(agent, skills);
 
-  if (agent.systemPromptMode === 'replace') {
-    return appendPiSubagentsReplaceModeRuntimeBlocks(prompt, availableSubagents, options);
+  if (agent.systemPromptMode === 'replace' || agent.systemPromptMode === 'replace-all') {
+    const systemPrompt = buildPiCustomSystemPrompt(
+      prompt,
+      options,
+      agent.systemPromptMode === 'replace',
+    );
+    return appendPiSubagentsReplaceModeRuntimeBlocks(systemPrompt, availableSubagents, options);
   }
 
   const trimmedBase = stripBuiltInSkills(basePrompt);

@@ -56,15 +56,14 @@ debug: true
 | `tools`         | `[]`        | CSV，如 `read, subagent`                 |
 | `skills`        | `undefined` | CSV，支持 wildcard，如 `obsidian-*`      |
 | `model`         | optional    | `provider/model`                         |
-| `thinking`      | `off`       | custom-agent 额外允许 `minimal`、`xhigh` |
+| `thinking`      | `off`       | `off`、`minimal`、`low`、`medium`、`high`、`xhigh` |
 | `allowedAgents` | `undefined` | 会和实际存在的 agent 名称取交集          |
-| `systemPrompt`  | `append`    | `replace` 或 `append`                    |
+| `systemPrompt`  | `append`    | `append`、`replace` 或 `replace-all`     |
 | `maxDepth`      | `10`        | 保留字段，方便和 pi-subagents 对齐       |
 | `debug`         | `false`     | 保留字段，方便和 pi-subagents 对齐       |
 
 刻意差异：
 
-- `thinking` 比 pi-subagents 更宽，保留 pi 当前支持的 `minimal` / `xhigh`。
 - body 提取使用 `replace(/^\s+/, '')`，避免 append 模式因为 frontmatter 后空行多产生额外空行。
 
 ## Skill resolution alignment
@@ -86,15 +85,17 @@ debug: true
 
 custom-agent 的目标是复用 pi-subagents 的 system prompt 结构，同时应用到当前 session。
 
-### replace mode
+### replace / replace-all mode
 
-`systemPrompt: replace` 下顺序应和 pi-subagents 一致：
+`systemPrompt: replace` 只替换 pi 默认 system prompt，但保留 project context files；`systemPrompt: replace-all` 则同时跳过 project context files（对齐 pi-subagents v2.0 的 breaking change）。两者都会在 agent prompt 后补回 runtime blocks：
 
 1. agent prompt
 2. skills block（如果有）
-3. `Available tools`
-4. `Guidelines`
-5. `Available subagents`（仅当 `subagent` tool 实际启用）
+3. project context（仅 `replace`）
+4. `Available tools`
+5. `Guidelines`
+6. `Current date` / `Current working directory`
+7. `Available subagents`（仅当 `subagent` tool 实际启用）
 
 这对应代码中的：
 

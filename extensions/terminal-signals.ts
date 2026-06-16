@@ -23,9 +23,9 @@ import type {
   AgentStartEvent,
   ExtensionAPI,
   ExtensionContext,
+  SessionBeforeSwitchEvent,
   SessionShutdownEvent,
   SessionStartEvent,
-  SessionSwitchEvent,
 } from '@earendil-works/pi-coding-agent';
 import { basename } from 'node:path';
 
@@ -152,7 +152,7 @@ export default function (pi: ExtensionAPI): void {
     ensureStopped(ctx);
   });
 
-  pi.on('session_switch', async (_event: SessionSwitchEvent, ctx: ExtensionContext) => {
+  pi.on('session_before_switch', async (_event: SessionBeforeSwitchEvent, ctx: ExtensionContext) => {
     ensureStopped(ctx);
   });
 }
