@@ -14,7 +14,8 @@
     "npm:@johnnywu/pi-subagents",
     "npm:@johnnywu/pi-webfetch",
     "npm:pi-animations",
-    "npm:pi-powerline"
+    "npm:pi-powerline",
+    "npm:pi-stats-ext"
   ],
   "tools": [
     "...",
