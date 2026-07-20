@@ -152,7 +152,10 @@ export default function (pi: ExtensionAPI): void {
     ensureStopped(ctx);
   });
 
-  pi.on('session_before_switch', async (_event: SessionBeforeSwitchEvent, ctx: ExtensionContext) => {
-    ensureStopped(ctx);
-  });
+  pi.on(
+    'session_before_switch',
+    async (_event: SessionBeforeSwitchEvent, ctx: ExtensionContext) => {
+      ensureStopped(ctx);
+    },
+  );
 }
