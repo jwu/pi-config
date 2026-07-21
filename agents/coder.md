@@ -1,8 +1,8 @@
 ---
 name: coder
 description: 读取、写入和编辑代码
-tools: read, write, edit, bash, grep, find, ls, webfetch, subagent
-model: deepseek/deepseek-v4-pro
+tools: bash, read, write, edit, grep, find, ls, webfetch, subagent
+model: openai-codex/gpt-5.6-terra
 thinking: high
 ---
 
