@@ -15,7 +15,7 @@
 - `~/dev/jwu/pi-subagents/extensions/subagent-executor.ts`
   - skills 注入格式、replace/append prompt 文件生成
 - `~/dev/jwu/pi-subagents/extensions/subagent-prompt.ts`
-  - `Available tools` / `Guidelines` / `Available subagents` 注入格式与顺序
+  - `Available tools` / `Guidelines` 的运行时占位符注入格式
 
 ## Agent file format
 
@@ -49,18 +49,18 @@ debug: true
 
 当前 custom-agent 已对齐 `pi-subagents/extensions/agent-loader.ts` 的核心字段：
 
-| field           | default     | note                                     |
-| --------------- | ----------- | ---------------------------------------- |
-| `name`          | required    | agent 名称                               |
-| `description`   | optional    | 展示说明                                 |
-| `tools`         | `[]`        | CSV，如 `read, subagent`                 |
-| `skills`        | `undefined` | CSV，支持 wildcard，如 `obsidian-*`      |
-| `model`         | optional    | `provider/model`                         |
+| field           | default     | note                                               |
+| --------------- | ----------- | -------------------------------------------------- |
+| `name`          | required    | agent 名称                                         |
+| `description`   | optional    | 展示说明                                           |
+| `tools`         | `[]`        | CSV，如 `read, subagent`                           |
+| `skills`        | `undefined` | CSV，支持 wildcard，如 `obsidian-*`                |
+| `model`         | optional    | `provider/model`                                   |
 | `thinking`      | `off`       | `off`、`minimal`、`low`、`medium`、`high`、`xhigh` |
-| `allowedAgents` | `undefined` | 会和实际存在的 agent 名称取交集          |
-| `systemPrompt`  | `append`    | `append`、`replace` 或 `replace-all`     |
-| `maxDepth`      | `10`        | 保留字段，方便和 pi-subagents 对齐       |
-| `debug`         | `false`     | 保留字段，方便和 pi-subagents 对齐       |
+| `allowedAgents` | `undefined` | 会和实际存在的 agent 名称取交集                    |
+| `systemPrompt`  | `append`    | `append`、`replace` 或 `replace-all`               |
+| `maxDepth`      | `10`        | 保留字段，方便和 pi-subagents 对齐                 |
+| `debug`         | `false`     | 保留字段，方便和 pi-subagents 对齐                 |
 
 刻意差异：
 
@@ -87,22 +87,23 @@ custom-agent 的目标是复用 pi-subagents 的 system prompt 结构，同时�
 
 ### replace / replace-all mode
 
-`systemPrompt: replace` 只替换 pi 默认 system prompt，但保留 project context files；`systemPrompt: replace-all` 则同时跳过 project context files（对齐 pi-subagents v2.0 的 breaking change）。两者都会在 agent prompt 后补回 runtime blocks：
+`systemPrompt: replace` 只替换 pi 默认 system prompt，但保留 project context files；`systemPrompt: replace-all` 则同时跳过 project context files。
+
+custom-agent 会在两种 replace 模式下自动插入 Pi 运行时的 `Available tools` 与 `Guidelines` 区块，无需在 agent body 中声明占位符。旧的 `<pi-runtime-tools />` 会在加载时被忽略，以保持兼容。
+
+顺序为：
 
 1. agent prompt
-2. skills block（如果有）
-3. project context（仅 `replace`）
-4. `Available tools`
-5. `Guidelines`
-6. `Current date` / `Current working directory`
-7. `Available subagents`（仅当 `subagent` tool 实际启用）
+2. `Available tools` / `Guidelines`
+3. skills block（如果有）
+4. project context（仅 `replace`）
+5. `Current working directory`
 
 这对应代码中的：
 
 - `buildAgentPromptWithSkills()`
-- `appendPiSubagentsReplaceModeRuntimeBlocks()`
-- `appendAvailableToolsAndGuidelinesBlock()`
-- `appendAvailableSubagentsBlock()`
+- `injectRuntimeToolsBlock()`
+- `buildPiCustomSystemPrompt()`
 
 ### append mode
 
@@ -111,23 +112,19 @@ custom-agent 的目标是复用 pi-subagents 的 system prompt 结构，同时�
 1. 保留 pi 原始 base prompt
 2. 去掉 base prompt 里已有的 built-in skills block，避免重复
 3. append agent prompt + skills block
-4. 最后 append `Available subagents`（仅当 `subagent` tool 实际启用）
+4. 由 Pi 0.83 根据 active tool 的 `promptSnippet` 与 `promptGuidelines` 自动组装工具信息
 
 这是 custom-agent 的架构差异：pi-subagents 子进程使用 `--no-skills`，custom-agent 是在当前 session 注入，因此需要 `stripBuiltInSkills()`。
 
 ## Available subagents filtering
 
-`allowedAgents` 只作为白名单，不直接展示。
-
-实际展示列表为：
+`allowedAgents` 是执行白名单。custom-agent 在 session start 时通过 `pi.events` 请求 pi-subagents 重新注册受限的 `subagent` 工具：工具实际可执行的 agent、其 `promptGuidelines` 中的代理列表都会使用：
 
 ```ts
-availableSubagents = existingAgentNames ∩ allowedAgents
+allowedAgents = existingAgentNames ∩ agent.allowedAgents
 ```
 
-如果没有 `allowedAgents`，则展示所有实际存在的 agent。
-
-`Available subagents` 只在 `selectedTools` 包含 `subagent` 时注入，和 pi-subagents 的 `appendAvailableSubagentsBlock()` 调用条件一致。
+未声明 `allowedAgents` 时，subagent 工具保持不受限。
 
 ## Debugging
 

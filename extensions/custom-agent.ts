@@ -14,6 +14,9 @@ type ThinkingLevel = 'off' | 'low' | 'medium' | 'high' | 'minimal' | 'xhigh';
 type SystemPromptMode = 'replace' | 'replace-all' | 'append';
 type AgentSource = 'global' | 'project' | 'path';
 
+const AUTO_RUNTIME_TOOLS_MARKER = '<pi-subagents-runtime-tools />';
+const LEGACY_RUNTIME_TOOLS_MARKER = '<pi-runtime-tools />';
+
 /**
  * Keep this close to ~/dev/jwu/pi-subagents/extensions/agent-loader.ts.
  *
@@ -76,9 +79,7 @@ interface SystemPromptInjectionOptions extends Partial<
     | 'cwd'
     | 'contextFiles'
   >
-> {
-  injectToolGuidelines?: boolean;
-}
+> {}
 
 const SYSTEM_PROMPT_BRIDGE = Symbol.for('pi-config.custom-agent.systemPromptBridge');
 const systemPromptBridge = globalThis as typeof globalThis & {
@@ -430,13 +431,14 @@ function parseAgent(content: string, filePath: string, source: AgentSource): Age
     debug = data.debug === 'true';
   }
 
+  const tools = splitCsv(data.tools);
   const allowedAgents = splitCsv(data.allowedAgents);
   const skills = splitCsv(data.skills);
 
   return {
     name: data.name,
     description: data.description || undefined,
-    tools: splitCsv(data.tools),
+    tools,
     skills: skills.length > 0 ? skills : undefined,
     model: data.model || undefined,
     thinking,
@@ -444,7 +446,9 @@ function parseAgent(content: string, filePath: string, source: AgentSource): Age
     maxDepth,
     debug,
     systemPromptMode,
-    prompt: body,
+    // The old public marker is accepted for backwards compatibility, but runtime
+    // tools are now injected automatically for replace-mode agents.
+    prompt: body.replaceAll(LEGACY_RUNTIME_TOOLS_MARKER, ''),
     source,
     filePath,
   };
@@ -606,12 +610,14 @@ async function setThinkingLevelWithoutSavingDefault(
   }
 }
 
-function availableSubagentsForAgent(agent: AgentConfig, allAgentNames: string[]): string[] {
-  if ((agent.allowedAgents?.length ?? 0) > 0) {
-    const allowed = new Set(agent.allowedAgents);
-    return [...new Set(allAgentNames.filter((name) => allowed.has(name)))].sort();
-  }
-  return [...new Set(allAgentNames)].sort();
+function allowedSubagentsForAgent(
+  agent: AgentConfig,
+  allAgentNames: string[],
+): string[] | undefined {
+  if ((agent.allowedAgents?.length ?? 0) === 0) return undefined;
+
+  const allowed = new Set(agent.allowedAgents);
+  return [...new Set(allAgentNames.filter((name) => allowed.has(name)))].sort();
 }
 
 function displayAgentPath(filePath: string, cwd: string): string {
@@ -692,33 +698,17 @@ function formatAvailableToolsAndGuidelinesBlock(
   ].join('\n');
 }
 
-function appendBeforeTrailingRuntimeMetadata(systemPrompt: string, block: string): string {
-  const marker = '\nCurrent date:';
-  const index = systemPrompt.lastIndexOf(marker);
-  if (index === -1) return `${systemPrompt.trimEnd()}\n\n${block}`;
-
-  const before = systemPrompt.slice(0, index).trimEnd();
-  const after = systemPrompt.slice(index);
-  return `${before}\n\n${block}${after}`;
-}
-
-function appendAvailableToolsAndGuidelinesBlock(
+function injectRuntimeToolsBlock(
   systemPrompt: string,
   options: SystemPromptInjectionOptions,
 ): string {
-  const block = formatAvailableToolsAndGuidelinesBlock(options);
-  if (!block || systemPrompt.includes(block)) {
-    return systemPrompt;
+  const block = formatAvailableToolsAndGuidelinesBlock(options) ?? '';
+  if (systemPrompt.includes(AUTO_RUNTIME_TOOLS_MARKER)) {
+    return systemPrompt
+      .replace(AUTO_RUNTIME_TOOLS_MARKER, block)
+      .replaceAll(LEGACY_RUNTIME_TOOLS_MARKER, '');
   }
-
-  return appendBeforeTrailingRuntimeMetadata(systemPrompt, block);
-}
-
-function formatAvailableSubagentsBlock(agentNames: string[]): string | undefined {
-  const names = [...new Set(agentNames.map((name) => name.trim()).filter(Boolean))].sort();
-  if (names.length === 0) return undefined;
-
-  return ['Available subagents:', ...names.map((name) => `- ${name}`)].join('\n');
+  return systemPrompt.replace(LEGACY_RUNTIME_TOOLS_MARKER, block);
 }
 
 function formatSkillsForPrompt(skills: ResolvedSkill[]): string {
@@ -755,27 +745,14 @@ function stripBuiltInSkills(prompt: string): string {
     .trimEnd();
 }
 
-function appendAvailableSubagentsBlock(systemPrompt: string, agentNames: string[]): string {
-  const block = formatAvailableSubagentsBlock(agentNames);
-  if (!block || systemPrompt.includes(block)) return systemPrompt;
-
-  return `${systemPrompt.trimEnd()}\n\n${block}`;
-}
-
-function shouldInjectAvailableSubagents(options: SystemPromptInjectionOptions): boolean {
-  return options.selectedTools?.includes('subagent') ?? false;
-}
-
-function buildAgentPromptWithSkills(agent: AgentConfig, skills: ResolvedSkill[]): string {
-  return `${agent.prompt.trimEnd()}${formatSkillsForPrompt(skills)}`.trimEnd();
-}
-
-function currentDateString(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+function buildAgentPromptWithSkills(
+  agent: AgentConfig,
+  skills: ResolvedSkill[],
+  injectRuntimeTools: boolean,
+): string {
+  let prompt = agent.prompt.trimEnd();
+  if (injectRuntimeTools) prompt = `${prompt}\n\n${AUTO_RUNTIME_TOOLS_MARKER}`;
+  return `${prompt}${formatSkillsForPrompt(skills)}`.trimEnd();
 }
 
 function appendProjectContext(systemPrompt: string, options: SystemPromptInjectionOptions): string {
@@ -801,64 +778,40 @@ function buildPiCustomSystemPrompt(
   if (includeProjectContext) prompt = appendProjectContext(prompt, options);
 
   if (options.cwd) {
-    prompt += `\nCurrent date: ${currentDateString()}`;
     prompt += `\nCurrent working directory: ${options.cwd.replace(/\\/g, '/')}`;
   }
 
   return prompt;
 }
 
-function appendPiSubagentsReplaceModeRuntimeBlocks(
-  systemPrompt: string,
-  availableSubagents: string[],
-  options: SystemPromptInjectionOptions,
-): string {
-  // Match pi-subagents ordering for replace/replace-all processes:
-  // custom prompt (+ optional project context) -> Available tools/Guidelines -> Available subagents.
-  let result = options.injectToolGuidelines
-    ? appendAvailableToolsAndGuidelinesBlock(systemPrompt, options)
-    : systemPrompt;
-
-  if (shouldInjectAvailableSubagents(options)) {
-    result = appendAvailableSubagentsBlock(result, availableSubagents);
-  }
-  return result;
-}
-
 function buildAgentSystemPrompt(
   agent: AgentConfig,
   basePrompt: string,
   skills: ResolvedSkill[],
-  availableSubagents: string[],
   options: SystemPromptInjectionOptions = {},
 ): string {
-  const prompt = buildAgentPromptWithSkills(agent, skills);
+  const isReplaceMode =
+    agent.systemPromptMode === 'replace' || agent.systemPromptMode === 'replace-all';
+  const prompt = buildAgentPromptWithSkills(agent, skills, isReplaceMode);
 
-  if (agent.systemPromptMode === 'replace' || agent.systemPromptMode === 'replace-all') {
-    const systemPrompt = buildPiCustomSystemPrompt(
-      prompt,
+  if (isReplaceMode) {
+    return buildPiCustomSystemPrompt(
+      injectRuntimeToolsBlock(prompt, options),
       options,
       agent.systemPromptMode === 'replace',
     );
-    return appendPiSubagentsReplaceModeRuntimeBlocks(systemPrompt, availableSubagents, options);
   }
 
   const trimmedBase = stripBuiltInSkills(basePrompt);
-  let systemPrompt: string;
-  if (!prompt) systemPrompt = trimmedBase;
-  else if (trimmedBase.endsWith(prompt)) systemPrompt = basePrompt;
-  else systemPrompt = `${trimmedBase}\n\n${prompt}`;
-
-  if (shouldInjectAvailableSubagents(options)) {
-    systemPrompt = appendAvailableSubagentsBlock(systemPrompt, availableSubagents);
-  }
-  return systemPrompt;
+  if (!prompt) return trimmedBase;
+  if (trimmedBase.endsWith(prompt)) return basePrompt;
+  return `${trimmedBase}\n\n${prompt}`;
 }
 
 export const __testing = {
   buildAgentSystemPrompt,
   agentSummary,
-  formatAvailableSubagentsBlock,
+  allowedSubagentsForAgent,
   isAgentPathSelector,
   loadAgentFromPath,
   parseAgent,
@@ -875,7 +828,6 @@ export default function (pi: ExtensionAPI): void {
 
   let activeAgent: AgentConfig | undefined;
   let activeSkills: ResolvedSkill[] = [];
-  let activeAvailableSubagents: string[] = [];
   let activeSelectedTools: string[] | undefined;
   let activePromptOptions: SystemPromptInjectionOptions | undefined;
   let startupError: string | undefined;
@@ -884,8 +836,8 @@ export default function (pi: ExtensionAPI): void {
   pi.on('session_start', async (_event, ctx) => {
     activeAgent = undefined;
     activeSkills = [];
-    activeAvailableSubagents = [];
     activeSelectedTools = undefined;
+    pi.events.emit('pi-subagents:configure', { allowedAgents: undefined });
     activePromptOptions = undefined;
     startupError = undefined;
     promptBridge.getPrompt = undefined;
@@ -928,10 +880,12 @@ export default function (pi: ExtensionAPI): void {
     }
 
     activeAgent = agent;
-    activeAvailableSubagents = availableSubagentsForAgent(
-      agent,
-      availableAgents.map((candidate) => candidate.name),
-    );
+    pi.events.emit('pi-subagents:configure', {
+      allowedAgents: allowedSubagentsForAgent(
+        agent,
+        availableAgents.map((candidate) => candidate.name),
+      ),
+    });
     if ((agent.skills?.length ?? 0) > 0) {
       const {
         resolved,
@@ -956,13 +910,12 @@ export default function (pi: ExtensionAPI): void {
       const fallbackToolSnippets = Object.fromEntries(
         pi.getAllTools().map((tool) => [tool.name, tool.description]),
       );
-      return buildAgentSystemPrompt(agent, basePrompt, activeSkills, activeAvailableSubagents, {
+      return buildAgentSystemPrompt(agent, basePrompt, activeSkills, {
         toolSnippets: fallbackToolSnippets,
         ...activePromptOptions,
         ...options,
         selectedTools:
           options?.selectedTools ?? activePromptOptions?.selectedTools ?? activeSelectedTools,
-        injectToolGuidelines: true,
       });
     };
 
@@ -1011,17 +964,13 @@ export default function (pi: ExtensionAPI): void {
   pi.on('before_agent_start', async (event) => {
     if (!activeAgent) return;
 
-    activePromptOptions = {
-      ...event.systemPromptOptions,
-      injectToolGuidelines: true,
-    };
+    activePromptOptions = event.systemPromptOptions;
 
     return {
       systemPrompt: buildAgentSystemPrompt(
         activeAgent,
         event.systemPrompt,
         activeSkills,
-        activeAvailableSubagents,
         activePromptOptions,
       ),
     };

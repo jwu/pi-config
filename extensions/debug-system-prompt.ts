@@ -19,10 +19,6 @@ interface CustomAgentSystemPromptBridge {
   getPrompt?: (basePrompt: string, options?: BuildSystemPromptOptions) => string | undefined;
 }
 
-interface SystemPromptOptionsCommandContext extends ExtensionCommandContext {
-  getSystemPromptOptions?: () => BuildSystemPromptOptions;
-}
-
 const SYSTEM_PROMPT_BRIDGE = Symbol.for('pi-config.custom-agent.systemPromptBridge');
 const systemPromptBridge = globalThis as typeof globalThis & {
   [SYSTEM_PROMPT_BRIDGE]?: CustomAgentSystemPromptBridge;
@@ -53,10 +49,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand('debug-system-prompt', {
     description: 'Preview the current system prompt in external editor',
     handler: async (_args, ctx) => {
-      const prompt = getSystemPrompt(
-        ctx.getSystemPrompt(),
-        (ctx as SystemPromptOptionsCommandContext).getSystemPromptOptions?.(),
-      );
+      const prompt = getSystemPrompt(ctx.getSystemPrompt(), ctx.getSystemPromptOptions());
       if (!prompt) {
         ctx.ui.notify("No system prompt available. The agent hasn't started yet.", 'info');
         return;

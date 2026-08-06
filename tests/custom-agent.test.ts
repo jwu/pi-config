@@ -6,8 +6,8 @@ import { __testing } from '../extensions/custom-agent.ts';
 
 const {
   agentSummary,
+  allowedSubagentsForAgent,
   buildAgentSystemPrompt,
-  formatAvailableSubagentsBlock,
   isAgentPathSelector,
   loadAgentFromPath,
   parseAgent,
@@ -16,22 +16,13 @@ const {
 } = __testing;
 
 describe('custom-agent prompt injections', () => {
-  test('formats available subagents as a sorted standalone block', () => {
-    expect(formatAvailableSubagentsBlock(['worker', 'scout', 'scout'])).toBe(
-      'Available subagents:\n- scout\n- worker',
-    );
-  });
-
-  test('does not inject allowedAgents when subagent tool is not selected', () => {
+  test('filters an agent allowlist against registered agents', () => {
     const agent = parseAgent(
       `---
 name: test-subagent
-description: 测试 subagent
 tools: read
-model: deepseek/deepseek-v4-flash
 thinking: off
-allowedAgents: scout
-skills: ask-user
+allowedAgents: scout, missing
 ---
 
 你是用来测试 subagent 的各方面的
@@ -40,21 +31,15 @@ skills: ask-user
       'global',
     );
 
-    expect(agent.allowedAgents).toEqual(['scout']);
-    expect(
-      buildAgentSystemPrompt(agent, 'base prompt', [], agent.allowedAgents!, {
-        selectedTools: ['read'],
-      }),
-    ).not.toContain('Available subagents:');
+    expect(allowedSubagentsForAgent(agent, ['worker', 'scout'])).toEqual(['scout']);
   });
 
-  test('injects all available agents when the subagent tool is selected', () => {
+  test('leaves the subagent tool unscoped when allowedAgents is omitted', () => {
     const agent = parseAgent(
       `---
 name: delegator
-tools: read, subagent
+tools: subagent
 thinking: off
-systemPrompt: replace
 ---
 
 Delegate when useful.
@@ -63,40 +48,10 @@ Delegate when useful.
       'global',
     );
 
-    expect(
-      buildAgentSystemPrompt(agent, 'base prompt', [], ['worker', 'scout'], {
-        selectedTools: ['read', 'subagent'],
-      }).trimStart(),
-    ).toBe('Delegate when useful.\n\nAvailable subagents:\n- scout\n- worker');
+    expect(allowedSubagentsForAgent(agent, ['worker', 'scout'])).toBeUndefined();
   });
 
-  test('does not duplicate an available subagents block in append mode', () => {
-    const agent = parseAgent(
-      `---
-name: delegator
-tools: subagent
-thinking: off
-systemPrompt: append
----
-
-Extra instructions.
-`,
-      '/repo/agents/delegator.md',
-      'global',
-    );
-
-    const prompt = buildAgentSystemPrompt(
-      agent,
-      'Base prompt.\n\nAvailable subagents:\n- scout',
-      [],
-      ['scout'],
-      { selectedTools: ['subagent'] },
-    );
-
-    expect(prompt.match(/Available subagents:/g)?.length).toBe(1);
-  });
-
-  test('injects available tools and guidelines in replace mode', () => {
+  test('automatically injects available tools and guidelines in replace mode', () => {
     const agent = parseAgent(
       `---
 name: replacer
@@ -111,14 +66,13 @@ Replace instructions.
       'global',
     );
 
-    const prompt = buildAgentSystemPrompt(agent, 'base prompt', [], ['scout'], {
+    const prompt = buildAgentSystemPrompt(agent, 'base prompt', [], {
       selectedTools: ['read', 'bash', 'subagent'],
       toolSnippets: {
         read: 'Read the contents of a file.',
         bash: 'Execute a bash command.',
       },
       promptGuidelines: ['Prefer read over cat'],
-      injectToolGuidelines: true,
     });
 
     expect(prompt).toContain(
@@ -127,15 +81,70 @@ Replace instructions.
     expect(prompt).toContain(
       'Guidelines:\n- Use bash for file operations like ls, rg, find\n- Prefer read over cat',
     );
-    expect(prompt).toContain('Available subagents:\n- scout');
+    expect(prompt).not.toContain('<pi-runtime-tools />');
     expect(prompt.indexOf('Available tools:')).toBeLessThan(prompt.indexOf('Guidelines:'));
-    expect(prompt.indexOf('Guidelines:')).toBeLessThan(prompt.indexOf('Available subagents:'));
+  });
+
+  test('places automatic runtime tools between the agent body and skills', () => {
+    const agent = parseAgent(
+      `---
+name: replacer
+tools: read
+thinking: off
+systemPrompt: replace
+---
+
+Replace instructions.
+`,
+      '/repo/agents/replacer.md',
+      'global',
+    );
+    const prompt = buildAgentSystemPrompt(
+      agent,
+      'base prompt',
+      [
+        {
+          name: 'example-skill',
+          description: 'Example skill.',
+          location: '/skills/example-skill/SKILL.md',
+        },
+      ],
+      {
+        selectedTools: ['read'],
+        toolSnippets: { read: 'Read the contents of a file.' },
+      },
+    );
+
+    expect(prompt.indexOf('Replace instructions.')).toBeLessThan(prompt.indexOf('Available tools:'));
+    expect(prompt.indexOf('Available tools:')).toBeLessThan(prompt.indexOf('<available_skills>'));
+    expect(prompt).not.toContain('<pi-subagents-runtime-tools />');
+  });
+
+  test('strips legacy runtime tools placeholders while loading an agent', () => {
+    const agent = parseAgent(
+      `---
+name: legacy-replacer
+tools: read
+thinking: off
+systemPrompt: replace
+---
+
+Replace instructions.
+
+<pi-runtime-tools />
+`,
+      '/repo/agents/legacy-replacer.md',
+      'global',
+    );
+
+    expect(agent.prompt).not.toContain('<pi-runtime-tools />');
   });
 
   test('keeps project context in replace mode but skips it in replace-all mode', () => {
     const replaceAgent = parseAgent(
       `---
 name: replacer
+tools: read
 thinking: off
 systemPrompt: replace
 ---
@@ -148,6 +157,7 @@ Replace instructions.
     const replaceAllAgent = parseAgent(
       `---
 name: isolated
+tools: read
 thinking: off
 systemPrompt: replace-all
 ---
@@ -163,26 +173,17 @@ Isolated instructions.
       contextFiles: [{ path: 'AGENTS.md', content: 'Project rules.' }],
       selectedTools: ['read'],
       toolSnippets: { read: 'Read the contents of a file.' },
-      injectToolGuidelines: true,
     };
 
-    const replacePrompt = buildAgentSystemPrompt(replaceAgent, 'base prompt', [], [], options);
-    const replaceAllPrompt = buildAgentSystemPrompt(
-      replaceAllAgent,
-      'base prompt',
-      [],
-      [],
-      options,
-    );
+    const replacePrompt = buildAgentSystemPrompt(replaceAgent, 'base prompt', [], options);
+    const replaceAllPrompt = buildAgentSystemPrompt(replaceAllAgent, 'base prompt', [], options);
 
     expect(replacePrompt).toContain('<project_instructions path="AGENTS.md">\nProject rules.');
     expect(replacePrompt).toContain('Available tools:\n- read: Read the contents of a file.');
-    expect(replacePrompt.indexOf('</project_context>')).toBeLessThan(
-      replacePrompt.indexOf('Available tools:'),
-    );
     expect(replacePrompt.indexOf('Available tools:')).toBeLessThan(
-      replacePrompt.indexOf('Current date:'),
+      replacePrompt.indexOf('</project_context>'),
     );
+    expect(replacePrompt).not.toContain('Current date:');
     expect(replacePrompt).toContain('Current working directory: /repo');
 
     expect(replaceAllPrompt).not.toContain('<project_context>');
