@@ -99,6 +99,7 @@
     "thinkingLow": "green",
     "thinkingMedium": "blue",
     "thinkingHigh": "purple",
+    "thinkingMax": "cyan",
     "thinkingXhigh": "red",
 
     "bashMode": "orange"
