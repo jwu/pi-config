@@ -241,7 +241,7 @@ function formatReadResult(
     text += `${theme.fg('muted', `\n... (${remaining} more lines,`)} ${keyHint(
       'app.tools.expand',
       'to expand',
-    )})`;
+    )}${theme.fg('muted', ')')}`;
   }
 
   const truncation = result.details?.truncation;
