@@ -2,7 +2,7 @@
 name: debug-skills
 description: 用于调试 subagent 的 skills
 tools: read, ls, find, grep
-model: deepseek/deepseek-v4-flash
+model: deepseek/deepseek-flash
 thinking: off
 skills: obsidian-*
 debug: true

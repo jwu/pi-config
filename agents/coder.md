@@ -2,7 +2,7 @@
 name: coder
 description: 读取、写入和编辑代码
 tools: bash, read, write, edit, grep, find, ls, webfetch, subagent
-model: openai-codex/gpt-5.6-terra
+model: deepseek/deepseek-flash
 thinking: high
 ---
 
