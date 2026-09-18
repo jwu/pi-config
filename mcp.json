@@ -1,0 +1,25 @@
+{
+  "mcpServers": {
+    "blender": {
+      "command": "uvx",
+      "args": [
+        "blender-mcp"
+      ],
+      "directTools": false
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest",
+        "--autoConnect"
+      ]
+    },
+    "open-pencil": {
+      "command": "openpencil-mcp"
+    }
+  },
+  "settings": {
+    "mcpFooterStatus": "compact"
+  }
+}
