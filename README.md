@@ -9,7 +9,7 @@
 | 功能 | 内容 |
 | --- | --- |
 | 基础设置 | One Dark 主题、安静启动、Python 经由 `uv run` 转发，以及常用 package/tool 配置。 |
-| 按键绑定 | [`keybindings.json`](keybindings.json) 将剪贴板粘贴映射到 `Ctrl+Shift+V`，供终端（如 Ghostty）透传后由 Pi 读取图片/文本。 |
+| 按键绑定 | [`keybindings.json`](keybindings.json) 将剪贴板粘贴映射到 `Ctrl+Shift+V`，并将全屏模式的历史搜索改为 `Ctrl+F`。 |
 | 当前会话 Agent | [`custom-agent`](extensions/custom-agent.ts) 让 `pi --agent <name>` 在当前 session 加载 Markdown Agent，支持工具白名单、模型、思考等级、Skill 与 system prompt 模式。 |
 | System Prompt 调试 | [`debug-system-prompt`](extensions/debug-system-prompt.ts) 会在外部编辑器中只读预览当前 session 的最终 system prompt。 |
 | 模糊文件补全 | [`fuzzy-at`](extensions/fuzzy-at.ts) 为 `@` 文件引用提供跨路径的 fuzzy 匹配、命中高亮与长路径折叠。 |
@@ -68,12 +68,16 @@ cp -R themes/. ~/.pi/agent/themes/
 
 保留原有 `settings.json` 的其他字段；不要直接用此片段覆盖整个文件。
 
-### 剪贴板粘贴快捷键
+### 按键绑定
 
-[`keybindings.json`](keybindings.json) 将 `app.clipboard.pasteImage` 绑定到 `ctrl+shift+v`。该快捷键需要终端**不要**自己消费这个组合键，否则按键到不了 Pi：
+[`keybindings.json`](keybindings.json) 目前包含两项：
 
-- Ghostty 默认把 `ctrl+shift+v` 绑为 `paste_from_clipboard`，需在终端配置（dotfiles 仓库 `configs` 的 `linux/.config/ghostty/config.ghostty`）中加上 `keybind = ctrl+shift+v=unbind`。
-- Ghostty 的 `keybind = ctrl+v=paste_from_clipboard` 保留不变，因此 `ctrl+v` 仍是终端文本粘贴，niri 的 `Mod+V`（发送 `ctrl+v`）也不受影响。
+| 键 | 动作 | 说明 |
+| --- | --- | --- |
+| `Ctrl+Shift+V` | `app.clipboard.pasteImage` | 粘贴剪贴板图片（无图片时回退为文本）。需要终端**不要**自己消费这个组合键，否则按键到不了 Pi：Ghostty 默认把它绑为 `paste_from_clipboard`，需在 dotfiles 仓库 `configs` 的 `linux/.config/ghostty/config.ghostty` 中加上 `keybind = ctrl+shift+v=unbind`。 |
+| `Ctrl+F` | `tui.altScreen.search` | 全屏模式下打开历史记录搜索。 |
+
+`Ctrl+F` 的注意点：进入全屏后，视口输入处理在编辑器之前拦截该按键，因此 `tui.editor.cursorRight` 默认的 `Ctrl+F`（向右移光标）在全屏模式下会被搜索覆盖，可用方向键 `→` 代替。Ghostty 的 `ctrl+shift+f`（终端原生搜索）不受影响。
 
 修改后终端重载配置，并在 Pi 内执行 `/reload` 生效。
 
