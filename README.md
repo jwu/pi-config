@@ -9,6 +9,7 @@
 | 功能 | 内容 |
 | --- | --- |
 | 基础设置 | One Dark 主题、安静启动、Python 经由 `uv run` 转发，以及常用 package/tool 配置。 |
+| System Prompt 追加 | [`APPEND_SYSTEM.md`](APPEND_SYSTEM.md) 会追加到 system prompt，例如约束 thinking 语言。 |
 | 按键绑定 | [`keybindings.json`](keybindings.json) 将剪贴板粘贴映射到 `Ctrl+Shift+V`，并将全屏模式的历史搜索改为 `Ctrl+F`。 |
 | 当前会话 Agent | [`custom-agent`](extensions/custom-agent.ts) 让 `pi --agent <name>` 在当前 session 加载 Markdown Agent，支持工具白名单、模型、思考等级、Skill 与 system prompt 模式。 |
 | System Prompt 调试 | [`debug-system-prompt`](extensions/debug-system-prompt.ts) 会在外部编辑器中只读预览当前 session 的最终 system prompt。 |
@@ -52,6 +53,8 @@ bun install
 | 来源 | 目标 |
 | --- | --- |
 | `keybindings.json` | `~/.pi/agent/keybindings.json` |
+| `APPEND_SYSTEM.md` | `~/.pi/agent/APPEND_SYSTEM.md`（追加到 system prompt 的规则） |
+| `mcp.json` | `~/.pi/agent/mcp.json`（MCP 服务器定义） |
 | `agents/`、`prompts/`、`skills/`、`themes/` | `~/.pi/agent/` 下的同名目录 |
 | `extensions-settings/` | `~/.pi/agent/extensions/` |
 
@@ -75,6 +78,8 @@ mkdir -p ~/.pi/agent/{agents,extensions,prompts,skills,themes}
 [ -f ~/.pi/agent/settings.json ] && cp ~/.pi/agent/settings.json ~/.pi/agent/settings.json.bak
 cp settings.json ~/.pi/agent/settings.json
 cp keybindings.json ~/.pi/agent/keybindings.json
+cp APPEND_SYSTEM.md ~/.pi/agent/APPEND_SYSTEM.md
+cp mcp.json ~/.pi/agent/mcp.json
 cp -R agents/. ~/.pi/agent/agents/
 cp -R extensions-settings/. ~/.pi/agent/extensions/
 cp -R prompts/. ~/.pi/agent/prompts/
@@ -214,6 +219,8 @@ pi --agent scout
 ├── themes/                 # Pi 主题
 ├── deprecated/             # 已废弃的扩展，仅作保留
 ├── APPEND_SYSTEM.md        # 追加到 Pi system prompt 的规则
+├── keybindings.json        # 键位绑定
+├── mcp.json                # MCP 服务器定义
 └── settings.json           # 推荐的全局 Pi 设置
 ```
 
