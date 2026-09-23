@@ -28,7 +28,38 @@
 
 ## 安装与同步
 
-以下步骤会将仓库中的全局资源复制到 `~/.pi/agent`。执行前请备份已有的 `settings.json`，并按需合并你自己的认证、模型和其他个人设置。
+部署的目标目录是 `~/.pi/agent`。无论用脚本还是手动 `cp`，`extensions/` 都不参与复制：启动 Pi 后，`settings.json` 会从 `~/bin/pi-config/extensions` 直接加载本仓库的启用扩展，并按配置解析 package 扩展。
+
+### 一键部署（推荐）
+
+[`install.sh`](install.sh) 等价于下面的手动同步步骤，并在覆盖前把同名文件备份为 `<name>.bak.<时间戳>`：
+
+```bash
+# 1. 固定到 settings.json 所使用的位置
+mkdir -p ~/bin
+git clone git@github.com:jwu/pi-config.git ~/bin/pi-config
+cd ~/bin/pi-config
+
+# 2. 安装开发依赖
+bun install
+
+# 3. 部署 Pi 资源到 ~/.pi/agent
+./install.sh
+```
+
+脚本同步的内容：
+
+| 来源 | 目标 |
+| --- | --- |
+| `keybindings.json` | `~/.pi/agent/keybindings.json` |
+| `agents/`、`prompts/`、`skills/`、`themes/` | `~/.pi/agent/` 下的同名目录 |
+| `extensions-settings/` | `~/.pi/agent/extensions/` |
+
+`settings.json` 保存了认证、默认 provider 和模型等本机设置，已存在时脚本默认保留，传入 `--force` 才用仓库版本覆盖。目标目录可用 `PI_AGENT_DIR` 环境变量改写，便于先做试跑。
+
+### 手动同步
+
+不使用脚本时，按下面的 `cp` 流程逐步部署：
 
 ```bash
 # 1. 固定到 settings.json 所使用的位置
@@ -51,7 +82,21 @@ cp -R skills/. ~/.pi/agent/skills/
 cp -R themes/. ~/.pi/agent/themes/
 ```
 
-启动 Pi 后，`settings.json` 会从 `~/bin/pi-config/extensions` 加载本仓库的启用扩展，并按配置解析 package 扩展。更新仓库后，重新执行资源复制命令并在 Pi 内运行 `/reload`。
+手动同步时注意：`~/.pi/agent/settings.json` 里可能有你自己的认证、模型和其他个人设置，`cp settings.json` 前先备份并与仓库版本合并，不要直接覆盖。
+
+### 更新
+
+两种方式都只需重跑部署步骤：
+
+```bash
+cd ~/bin/pi-config
+git pull
+bun install     # 仅在依赖有变化时需要
+
+./install.sh    # 或用上一节的手动 cp 命令重新复制
+```
+
+随后在 Pi 内执行 `/reload`。`extensions/` 由 `settings.json` 指向仓库目录，是即时加载的，修改扩展本身不需要重新复制。
 
 ### 启用可选扩展
 
