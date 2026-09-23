@@ -1,4 +1,4 @@
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import type { ExtensionAPI, ExtensionCommandContext } from '@earendil-works/pi-coding-agent';
 import { execSync } from 'node:child_process';
 import { platform } from 'node:os';
 
@@ -42,6 +42,40 @@ function ghosttySplit(direction: 'right' | 'down', sessionFile: string, cwd: str
   });
 }
 
+async function openSplit(
+  ctx: ExtensionCommandContext,
+  command: string,
+  direction: 'right' | 'down',
+): Promise<void> {
+  if (!isGhosttyOnMac()) {
+    ctx.ui.notify(
+      `${command} requires Ghostty on macOS (TERM_PROGRAM=ghostty not detected)`,
+      'error',
+    );
+    return;
+  }
+
+  const sessionFile = ctx.sessionManager.getSessionFile();
+  if (!sessionFile) {
+    ctx.ui.notify(
+      `No session file. ${command} requires a saved session (not --no-session mode).`,
+      'error',
+    );
+    return;
+  }
+
+  try {
+    ghosttySplit(direction, sessionFile, ctx.cwd);
+    ctx.ui.notify(
+      `New pi split ${direction === 'down' ? 'below' : 'to the right'} with current session`,
+      'info',
+    );
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err);
+    ctx.ui.notify(`${command} failed: ${msg}`, 'error');
+  }
+}
+
 export const __testing = {
   appleScriptEscape,
   buildGhosttySplitScript,
@@ -52,63 +86,13 @@ export default function (pi: ExtensionAPI) {
   // /split: new_split:down
   pi.registerCommand('split', {
     description: 'Open a new pi split below (Ghostty: new_split:down), loading current session',
-    handler: async (_args, ctx) => {
-      if (!isGhosttyOnMac()) {
-        ctx.ui.notify(
-          '/split requires Ghostty on macOS (TERM_PROGRAM=ghostty not detected)',
-          'error',
-        );
-        return;
-      }
-
-      const sessionFile = ctx.sessionManager.getSessionFile();
-      if (!sessionFile) {
-        ctx.ui.notify(
-          'No session file. /split requires a saved session (not --no-session mode).',
-          'error',
-        );
-        return;
-      }
-
-      try {
-        ghosttySplit('down', sessionFile, ctx.cwd);
-        ctx.ui.notify('New pi split below with current session', 'info');
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        ctx.ui.notify(`/split failed: ${msg}`, 'error');
-      }
-    },
+    handler: async (_args, ctx) => openSplit(ctx, '/split', 'down'),
   });
 
   // /vsplit: new_split:right
   pi.registerCommand('vsplit', {
     description:
       'Open a new pi split to the right (Ghostty: new_split:right), loading current session',
-    handler: async (_args, ctx) => {
-      if (!isGhosttyOnMac()) {
-        ctx.ui.notify(
-          '/vsplit requires Ghostty on macOS (TERM_PROGRAM=ghostty not detected)',
-          'error',
-        );
-        return;
-      }
-
-      const sessionFile = ctx.sessionManager.getSessionFile();
-      if (!sessionFile) {
-        ctx.ui.notify(
-          'No session file. /vsplit requires a saved session (not --no-session mode).',
-          'error',
-        );
-        return;
-      }
-
-      try {
-        ghosttySplit('right', sessionFile, ctx.cwd);
-        ctx.ui.notify('New pi split to the right with current session', 'info');
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err);
-        ctx.ui.notify(`/vsplit failed: ${msg}`, 'error');
-      }
-    },
+    handler: async (_args, ctx) => openSplit(ctx, '/vsplit', 'right'),
   });
 }

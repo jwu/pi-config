@@ -35,6 +35,7 @@ const OSC = '\x1b]';
 const BEL = '\x07';
 
 function writeOSC(sequence: string) {
+  if (!process.stdout.isTTY) return;
   process.stdout.write(`${OSC}${sequence}${BEL}`);
 }
 
