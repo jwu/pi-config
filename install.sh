@@ -45,6 +45,12 @@ fi
 backup_file "$AGENT_DIR/keybindings.json"
 cp "$SCRIPT_DIR/keybindings.json" "$AGENT_DIR/keybindings.json"
 
+backup_file "$AGENT_DIR/APPEND_SYSTEM.md"
+cp "$SCRIPT_DIR/APPEND_SYSTEM.md" "$AGENT_DIR/APPEND_SYSTEM.md"
+
+backup_file "$AGENT_DIR/mcp.json"
+cp "$SCRIPT_DIR/mcp.json" "$AGENT_DIR/mcp.json"
+
 echo ">>> Copying agents, prompts, skills, themes and extension settings..."
 cp -R "$SCRIPT_DIR/agents/." "$AGENT_DIR/agents/"
 cp -R "$SCRIPT_DIR/prompts/." "$AGENT_DIR/prompts/"
