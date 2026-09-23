@@ -60,9 +60,24 @@ function markCommandDone() {
   writeOSC('133;D;0');
 }
 
-// Ghostty dismisses the progress indicator 15 s after the last OSC 9;4;3.
-// Re-send every 10 s so the spinner stays visible during long agent runs.
-const PROGRESS_INTERVAL_MS = 10_000;
+/**
+ * How often to re-send OSC 9;4;3 while the agent is active. Ghostty dismisses
+ * the progress indicator 15 s after the last report, so it has to be re-sent
+ * either way; how often depends on how the platform animates it.
+ *
+ *   - macOS: the bar animates its indeterminate state on its own, so incoming
+ *     reports only refresh the "still busy" state. A rare keepalive is enough.
+ *
+ *   - Linux: Ghostty's GTK backend advances the bar by calling
+ *     gtk_progress_bar_pulse() only when an OSC 9;4;3 arrives — GTK has no
+ *     internal timer. A slow keepalive therefore makes the bar crawl, one step
+ *     per report. Pulse frequently to animate it smoothly.
+ */
+export function progressKeepaliveMs(platform: NodeJS.Platform = process.platform): number {
+  return platform === 'linux' ? 50 : 10_000;
+}
+
+const PROGRESS_INTERVAL_MS = progressKeepaliveMs();
 
 // ─── Title spinner ───────────────────────────────────────────────────
 
@@ -70,6 +85,10 @@ const TITLE_SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '
 const TITLE_SPINNER_INTERVAL_MS = 80;
 
 // ─── Extension ───────────────────────────────────────────────────────
+
+export const __testing = {
+  progressKeepaliveMs,
+};
 
 export default function (pi: ExtensionAPI): void {
   let active = false;
