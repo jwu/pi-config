@@ -9,8 +9,8 @@
 | 功能 | 内容 |
 | --- | --- |
 | 基础设置 | One Dark 主题、安静启动、Python 经由 `uv run` 转发，以及常用 package/tool 配置。 |
-| System Prompt 追加 | [`APPEND_SYSTEM.md`](APPEND_SYSTEM.md) 会追加到 system prompt，例如约束 thinking 语言。 |
-| 按键绑定 | [`keybindings.json`](keybindings.json) 将剪贴板粘贴映射到 `Ctrl+Shift+V`，并将全屏模式的历史搜索改为 `Ctrl+F`。 |
+| System Prompt 追加 | `APPEND_SYSTEM.md` 会追加到 system prompt，例如约束 thinking 语言。已迁至 `dotfiles` 仓库。 |
+| 按键绑定 | `keybindings.json` 将剪贴板粘贴映射到 `Ctrl+Shift+V`，并将全屏模式的历史搜索改为 `Ctrl+F`。已迁至 `dotfiles` 仓库。 |
 | 当前会话 Agent | [`custom-agent`](extensions/custom-agent.ts) 让 `pi --agent <name>` 在当前 session 加载 Markdown Agent，支持工具白名单、模型、思考等级、Skill 与 system prompt 模式。 |
 | System Prompt 调试 | [`debug-system-prompt`](extensions/debug-system-prompt.ts) 会在外部编辑器中只读预览当前 session 的最终 system prompt。 |
 | 模糊文件补全 | [`fuzzy-at`](extensions/fuzzy-at.ts) 为 `@` 文件引用提供跨路径的 fuzzy 匹配、命中高亮与长路径折叠。 |
@@ -29,11 +29,16 @@
 
 ## 安装与同步
 
-部署的目标目录是 `~/.pi/agent`。无论用脚本还是手动 `cp`，`extensions/` 都不参与复制：启动 Pi 后，`settings.json` 会从 `~/bin/pi-config/extensions` 直接加载本仓库的启用扩展，并按配置解析 package 扩展。
+本仓库现在只管两件事：**扩展工程本身**，以及 `settings.json`——唯一无法交给 chezmoi 的文件，因为它记录本机的认证、provider 与模型。
 
-### 一键部署（推荐）
+`agents/`、`prompts/`、`skills/`、`themes/`、`keybindings.json` 和 `APPEND_SYSTEM.md` 已迁到
+[`jwu/dotfiles`](https://github.com/jwu/dotfiles) 的 chezmoi 源，由 `chezmoi apply` 部署到
+`~/.pi/agent/`。**不要再从这个仓库复制它们**：两边都以为自己拥有同一批文件，会互相覆盖。
 
-[`install.sh`](install.sh) 等价于下面的手动同步步骤，并在覆盖前把同名文件备份为 `<name>.bak.<时间戳>`：
+`extensions/` 也不需要复制：`settings.json` 的 `extensions` 字段把它 live 加载进 Pi。npm 插件
+同样不需要手动装：Pi 首次启动时会按 `settings.json` 的 `packages` 自行安装。
+
+### 一键部署
 
 ```bash
 # 1. 固定到 settings.json 所使用的位置
@@ -41,67 +46,34 @@ mkdir -p ~/bin
 git clone git@github.com:jwu/pi-config.git ~/bin/pi-config
 cd ~/bin/pi-config
 
-# 2. 安装开发依赖
+# 2. 安装开发依赖（扩展的 typecheck 与测试）
 bun install
 
-# 3. 部署 Pi 资源到 ~/.pi/agent
+# 3. 只部署 settings.json
 ./install.sh
 ```
 
-脚本同步的内容：
+[`install.sh`](install.sh) 只做一件事：把 `settings.json` 复制到 `~/.pi/agent/`。该文件保存认证、
+默认 provider 和模型等本机设置，**已存在时默认保留**，传入 `--force` 才用仓库版本覆盖；覆盖前
+备份为 `<name>.bak.<时间戳>`。目标目录可用 `PI_AGENT_DIR` 环境变量改写。
 
-| 来源 | 目标 |
-| --- | --- |
-| `keybindings.json` | `~/.pi/agent/keybindings.json` |
-| `APPEND_SYSTEM.md` | `~/.pi/agent/APPEND_SYSTEM.md`（追加到 system prompt 的规则） |
-| `mcp.json` | `~/.pi/agent/mcp.json`（MCP 服务器定义） |
-| `agents/`、`prompts/`、`skills/`、`themes/` | `~/.pi/agent/` 下的同名目录 |
-| `extensions-settings/` | `~/.pi/agent/extensions/` |
+脚本还会检查仓库是否位于 `~/bin/pi-config`——`settings.json` 用绝对路径指向
+`~/bin/pi-config/extensions`（Pi 不展开 `~`），仓库换位置就加载不到扩展。
 
-`settings.json` 保存了认证、默认 provider 和模型等本机设置，已存在时脚本默认保留，传入 `--force` 才用仓库版本覆盖。目标目录可用 `PI_AGENT_DIR` 环境变量改写，便于先做试跑。
-
-### 手动同步
-
-不使用脚本时，按下面的 `cp` 流程逐步部署：
-
-```bash
-# 1. 固定到 settings.json 所使用的位置
-mkdir -p ~/bin
-git clone git@github.com:jwu/pi-config.git ~/bin/pi-config
-cd ~/bin/pi-config
-
-# 2. 安装开发依赖
-bun install
-
-# 3. 备份并部署 Pi 资源
-mkdir -p ~/.pi/agent/{agents,extensions,prompts,skills,themes}
-[ -f ~/.pi/agent/settings.json ] && cp ~/.pi/agent/settings.json ~/.pi/agent/settings.json.bak
-cp settings.json ~/.pi/agent/settings.json
-cp keybindings.json ~/.pi/agent/keybindings.json
-cp APPEND_SYSTEM.md ~/.pi/agent/APPEND_SYSTEM.md
-cp mcp.json ~/.pi/agent/mcp.json
-cp -R agents/. ~/.pi/agent/agents/
-cp -R extensions-settings/. ~/.pi/agent/extensions/
-cp -R prompts/. ~/.pi/agent/prompts/
-cp -R skills/. ~/.pi/agent/skills/
-cp -R themes/. ~/.pi/agent/themes/
-```
-
-手动同步时注意：`~/.pi/agent/settings.json` 里可能有你自己的认证、模型和其他个人设置，`cp settings.json` 前先备份并与仓库版本合并，不要直接覆盖。
+`mcp.json` 和 `extensions-settings/` 留在仓库里**只是参考模板**（想知道新机器要装哪些 MCP
+server 或插件设置时对照用），`install.sh` 不部署它们：它们是 Pi 自己写入的状态，实际生效的是
+`~/.pi/agent/` 下那一份。
 
 ### 更新
-
-两种方式都只需重跑部署步骤：
 
 ```bash
 cd ~/bin/pi-config
 git pull
 bun install     # 仅在依赖有变化时需要
-
-./install.sh    # 或用上一节的手动 cp 命令重新复制
 ```
 
-随后在 Pi 内执行 `/reload`。`extensions/` 由 `settings.json` 指向仓库目录，是即时加载的，修改扩展本身不需要重新复制。
+配置文件的更新走 dotfiles：`chezmoi apply`。随后在 Pi 内执行 `/reload`。`extensions/` 由
+`settings.json` 指向仓库目录，是即时加载的，修改扩展本身不需要重新部署。
 
 ### 启用可选扩展
 
@@ -120,7 +92,7 @@ bun install     # 仅在依赖有变化时需要
 
 ### 按键绑定
 
-[`keybindings.json`](keybindings.json) 目前包含两项：
+`keybindings.json`（现在由 dotfiles 仓库部署到 `~/.pi/agent/`）包含两项：
 
 | 键 | 动作 | 说明 |
 | --- | --- | --- |
@@ -135,7 +107,7 @@ bun install     # 仅在依赖有变化时需要
 
 ### 自定义 Agent
 
-仓库中的 Agent 定义会部署到 `~/.pi/agent/agents/`。例如：
+Agent 定义现在由 dotfiles 仓库部署到 `~/.pi/agent/agents/`。例如：
 
 ```bash
 pi --agent coder
@@ -202,27 +174,26 @@ pi --agent scout
 /commit --ask  # 展示方案后等待确认
 ```
 
-详细提交规则位于 [`prompts/commit.md`](prompts/commit.md)。
+详细提交规则位于 dotfiles 仓库的 `dot_pi/agent/prompts/commit.md`（部署后为
+`~/.pi/agent/prompts/commit.md`）。
 
 ## 目录说明
 
 ```text
 .
-├── agents/                 # 可由 pi --agent 加载的 Markdown Agent
 ├── docs/                   # 扩展设计与使用说明
-├── extensions/             # 默认启用的本地 Pi 扩展
+├── extensions/             # 默认启用的本地 Pi 扩展（live 加载，不复制）
 ├── extensions-optional/    # 按需启用的扩展
-├── extensions-settings/    # package 扩展的全局配置文件
-├── prompts/                # 斜杠命令 Prompt
-├── skills/                 # 自定义 SKILL.md 与参考资料
+├── extensions-settings/    # package 扩展的全局配置——仅作参考模板，不部署
 ├── tests/                  # 扩展单元测试
-├── themes/                 # Pi 主题
 ├── deprecated/             # 已废弃的扩展，仅作保留
-├── APPEND_SYSTEM.md        # 追加到 Pi system prompt 的规则
-├── keybindings.json        # 键位绑定
-├── mcp.json                # MCP 服务器定义
-└── settings.json           # 推荐的全局 Pi 设置
+├── mcp.json                # MCP 服务器定义——仅作参考模板，不部署
+├── install.sh              # 只部署 settings.json
+└── settings.json           # 全局 Pi 设置
 ```
+
+已迁往 [`jwu/dotfiles`](https://github.com/jwu/dotfiles) 的 chezmoi 源（部署到 `~/.pi/agent/`）：
+`agents/`、`prompts/`、`skills/`、`themes/`、`keybindings.json`、`APPEND_SYSTEM.md`。
 
 ## 本地开发
 
@@ -240,4 +211,4 @@ bun run lint          # 依次运行格式、类型和测试检查
 - [`docs/custom-agent.md`](docs/custom-agent.md) — `custom-agent` 的 frontmatter、Skill 解析与 system prompt 注入模型。
 - [`docs/fuzzy-at.md`](docs/fuzzy-at.md) — `@` fuzzy 补全的匹配、排序、展示和测试说明。
 - [`docs/snacks-fuzzy-search.md`](docs/snacks-fuzzy-search.md) — Snacks.nvim fuzzy 搜索实现的调研笔记。
-- [`skills/coding-guidelines/SKILL.md`](skills/coding-guidelines/SKILL.md) — 面向编码、审查与重构的行为指南。
+- `dot_pi/agent/skills/coding-guidelines/SKILL.md`（dotfiles 仓库）— 面向编码、审查与重构的行为指南。
