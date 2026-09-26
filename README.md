@@ -2,7 +2,7 @@
 
 一套用于 [Pi](https://github.com/badlogic/pi-mono) 的个人配置：提供自定义扩展、主题、Agent、Skill 和 Prompt，并以 Bun 管理开发与测试。
 
-> 配置默认假定仓库位于 `~/bin/pi-config`，因为 [`settings.json`](settings.json) 使用了这个路径加载扩展。若放在其他位置，请相应修改该文件中的 `extensions` 路径。
+> 配置默认假定仓库位于 `~/bin/pi-config`：Pi 的 `settings.json` 用这个路径把 `extensions/` 活加载进来，而那份文件由 [`jwu/dotfiles`](https://github.com/jwu/dotfiles) 的 chezmoi 源渲染。若放在其他位置，请改那边的 `create_settings.json.tmpl`。
 
 ## 特性
 
@@ -29,11 +29,13 @@
 
 ## 安装与同步
 
-本仓库现在只管两件事：**扩展工程本身**，以及 `settings.json`——唯一无法交给 chezmoi 的文件，因为它记录本机的认证、provider 与模型。
+本仓库现在只管一件事：**扩展工程本身**。
 
-`agents/`、`prompts/`、`skills/`、`themes/`、`keybindings.json` 和 `APPEND_SYSTEM.md` 已迁到
-[`jwu/dotfiles`](https://github.com/jwu/dotfiles) 的 chezmoi 源，由 `chezmoi apply` 部署到
-`~/.pi/agent/`。**不要再从这个仓库复制它们**：两边都以为自己拥有同一批文件，会互相覆盖。
+配置全部迁到了 [`jwu/dotfiles`](https://github.com/jwu/dotfiles) 的 chezmoi 源：
+`agents/`、`prompts/`、`skills/`、`themes/`、`keybindings.json`、`APPEND_SYSTEM.md` 由
+`chezmoi apply` 同步到 `~/.pi/agent/`；`settings.json` 与 `mcp.json` 是 `create_` 目标，只在目标
+不存在时初始化一次，之后 Pi 自己回写的内容不会再被覆盖。**不要再从这个仓库复制任何配置**：
+两边都以为自己拥有同一批文件。
 
 `extensions/` 也不需要复制：`settings.json` 的 `extensions` 字段把它 live 加载进 Pi。npm 插件
 同样不需要手动装：Pi 首次启动时会按 `settings.json` 的 `packages` 自行安装。
@@ -41,7 +43,7 @@
 ### 一键部署
 
 ```bash
-# 1. 固定到 settings.json 所使用的位置
+# 1. 固定到模板渲染出的位置
 mkdir -p ~/bin
 git clone git@github.com:jwu/pi-config.git ~/bin/pi-config
 cd ~/bin/pi-config
@@ -49,20 +51,20 @@ cd ~/bin/pi-config
 # 2. 安装开发依赖（扩展的 typecheck 与测试）
 bun install
 
-# 3. 只部署 settings.json
+# 3. 检查路径（不再部署文件）
 ./install.sh
 ```
 
-[`install.sh`](install.sh) 只做一件事：把 `settings.json` 复制到 `~/.pi/agent/`。该文件保存认证、
-默认 provider 和模型等本机设置，**已存在时默认保留**，传入 `--force` 才用仓库版本覆盖；覆盖前
-备份为 `<name>.bak.<时间戳>`。目标目录可用 `PI_AGENT_DIR` 环境变量改写。
+[`install.sh`](install.sh) 现在**不部署任何文件**，只检查仓库是否位于 `~/bin/pi-config`——
+dotfiles 那边渲染出的 `extensions` 用绝对路径指向 `~/bin/pi-config/extensions`，仓库换位置就
+加载不到扩展。部署配置请去 dotfiles 仓库跑 `chezmoi apply`。
 
-脚本还会检查仓库是否位于 `~/bin/pi-config`——`settings.json` 用绝对路径指向
-`~/bin/pi-config/extensions`（Pi 不展开 `~`），仓库换位置就加载不到扩展。
+`settings.json` 与 `mcp.json` 由 dotfiles 的 `create_` 目标初始化，所以源里那份是**新机器的
+初始值**：`packages` 用 npm 包名，Unix 与 Windows 的 `extensions` 路径各按平台渲染。落地之后
+它们归 Pi 管，要改 `packages` 或 MCP server 得手工同步回 dotfiles 源，否则下次装机又是旧值。
 
-`mcp.json` 和 `extensions-settings/` 留在仓库里**只是参考模板**（想知道新机器要装哪些 MCP
-server 或插件设置时对照用），`install.sh` 不部署它们：它们是 Pi 自己写入的状态，实际生效的是
-`~/.pi/agent/` 下那一份。
+`extensions-settings/` 留在仓库里**只是参考模板**（想知道插件设置有哪些时对照用），
+`install.sh` 不部署它。
 
 ### 更新
 
@@ -73,7 +75,8 @@ bun install     # 仅在依赖有变化时需要
 ```
 
 配置文件的更新走 dotfiles：`chezmoi apply`。随后在 Pi 内执行 `/reload`。`extensions/` 由
-`settings.json` 指向仓库目录，是即时加载的，修改扩展本身不需要重新部署。
+`settings.json` 指向仓库目录，是即时加载的，修改扩展本身不需要重新部署。`settings.json` 与
+`mcp.json` 是 `create_` 目标，`apply` 不会碰盘上已有的那两份——**改源不等于改本机**，要手工同步。
 
 ### 启用可选扩展
 
@@ -144,7 +147,7 @@ pi --agent scout
 - `read`：保留代码语法高亮；在折叠状态下压缩显示文档、资源文件与 Skill 的内容，并为普通文件保留简短预览。
 - `grep`：以路径、行号和匹配内容的不同颜色展示结果；折叠时默认显示前 15 行，并提示可展开查看余下输出和截断信息。
 
-它们不改变工具的读取或搜索语义。`grep` 仅在 Pi 中启用该工具时生效；本仓库的 [`settings.json`](settings.json) 已将其加入工具列表。
+它们不改变工具的读取或搜索语义。`grep` 仅在 Pi 中启用该工具时生效；dotfiles 的 `create_settings.json.tmpl` 已将其加入工具列表。
 
 ### 终端状态信号
 
@@ -187,13 +190,12 @@ pi --agent scout
 ├── extensions-settings/    # package 扩展的全局配置——仅作参考模板，不部署
 ├── tests/                  # 扩展单元测试
 ├── deprecated/             # 已废弃的扩展，仅作保留
-├── mcp.json                # MCP 服务器定义——仅作参考模板，不部署
-├── install.sh              # 只部署 settings.json
-└── settings.json           # 全局 Pi 设置
+└── install.sh              # 只做路径检查，不部署文件
 ```
 
 已迁往 [`jwu/dotfiles`](https://github.com/jwu/dotfiles) 的 chezmoi 源（部署到 `~/.pi/agent/`）：
-`agents/`、`prompts/`、`skills/`、`themes/`、`keybindings.json`、`APPEND_SYSTEM.md`。
+`agents/`、`prompts/`、`skills/`、`themes/`、`keybindings.json`、`APPEND_SYSTEM.md`，以及作为
+`create_` 目标的 `settings.json` 与 `mcp.json`。
 
 ## 本地开发
 
