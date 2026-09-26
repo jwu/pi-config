@@ -2,6 +2,19 @@
 set -euo pipefail
 
 # ==========================================
+# pi-config 部署脚本（已缩水）
+# ==========================================
+#
+# 这里只保留 chezmoi 不负责的部分：settings.json。
+#
+# agents/、prompts/、skills/、themes/、keybindings.json、APPEND_SYSTEM.md、mcp.json 和
+# extensions-settings/ 现在由 dotfiles 仓库的 chezmoi 源管理。再从这里复制一遍会和
+# `chezmoi apply` 互相覆盖——两边都以为自己拥有同一批文件。
+#
+# extensions/ 本身不需要复制：settings.json 的 extensions 字段把它 live 加载进 pi。
+# npm 插件也不需要在这里装：pi 首次启动时会按 settings.json 的 packages 列表自行安装。
+
+# ==========================================
 # Configuration and Paths
 # ==========================================
 
@@ -32,7 +45,7 @@ backup_file() {
 # Copy Configurations
 # ==========================================
 
-mkdir -p "$AGENT_DIR/agents" "$AGENT_DIR/extensions" "$AGENT_DIR/prompts" "$AGENT_DIR/skills" "$AGENT_DIR/themes"
+mkdir -p "$AGENT_DIR"
 
 # settings.json 保存认证、默认 provider 和模型等本机设置，默认不覆盖。
 if [ -f "$AGENT_DIR/settings.json" ] && [ "$FORCE" -eq 0 ]; then
@@ -42,22 +55,18 @@ else
   cp "$SCRIPT_DIR/settings.json" "$AGENT_DIR/settings.json"
 fi
 
-backup_file "$AGENT_DIR/keybindings.json"
-cp "$SCRIPT_DIR/keybindings.json" "$AGENT_DIR/keybindings.json"
-
-backup_file "$AGENT_DIR/APPEND_SYSTEM.md"
-cp "$SCRIPT_DIR/APPEND_SYSTEM.md" "$AGENT_DIR/APPEND_SYSTEM.md"
-
-backup_file "$AGENT_DIR/mcp.json"
-cp "$SCRIPT_DIR/mcp.json" "$AGENT_DIR/mcp.json"
-
-echo ">>> Copying agents, prompts, skills, themes and extension settings..."
-cp -R "$SCRIPT_DIR/agents/." "$AGENT_DIR/agents/"
-cp -R "$SCRIPT_DIR/prompts/." "$AGENT_DIR/prompts/"
-cp -R "$SCRIPT_DIR/skills/." "$AGENT_DIR/skills/"
-cp -R "$SCRIPT_DIR/themes/." "$AGENT_DIR/themes/"
-cp -R "$SCRIPT_DIR/extensions-settings/." "$AGENT_DIR/extensions/"
+# settings.json 用绝对路径指向这个仓库的 extensions/ 目录（pi 不展开 ~），所以仓库必须
+# 待在预期位置，否则扩展加载不到。
+EXPECTED_DIR="$HOME/bin/pi-config"
+if [ "$SCRIPT_DIR" != "$EXPECTED_DIR" ]; then
+  echo ">>> Warning: this repo is at $SCRIPT_DIR" >&2
+  echo "    but settings.json points at $EXPECTED_DIR/extensions." >&2
+  echo "    Move the repo to that path or update the extensions field." >&2
+fi
 
 echo ">>> Deployment Complete!"
+echo "    Only settings.json was deployed."
+echo "    agents/, prompts/, skills/, themes/, keybindings.json, APPEND_SYSTEM.md"
+echo "    and mcp.json belong to the dotfiles chezmoi source now."
 echo "    extensions/ is loaded live from $SCRIPT_DIR/extensions via settings.json."
 echo "    Run /reload in Pi to apply changes."
