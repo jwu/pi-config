@@ -40,31 +40,27 @@
 `extensions/` 也不需要复制：`settings.json` 的 `extensions` 字段把它 live 加载进 Pi。npm 插件
 同样不需要手动装：Pi 首次启动时会按 `settings.json` 的 `packages` 自行安装。
 
-### 一键部署
+### 克隆与安装依赖
 
 ```bash
-# 1. 固定到模板渲染出的位置
+# 固定到模板渲染出的位置
 mkdir -p ~/bin
 git clone git@github.com:jwu/pi-config.git ~/bin/pi-config
 cd ~/bin/pi-config
 
-# 2. 安装开发依赖（扩展的 typecheck 与测试）
+# 安装开发依赖（扩展的 typecheck 与测试）
 bun install
-
-# 3. 检查路径（不再部署文件）
-./install.sh
 ```
 
-[`install.sh`](install.sh) 现在**不部署任何文件**，只检查仓库是否位于 `~/bin/pi-config`——
-dotfiles 那边渲染出的 `extensions` 用绝对路径指向 `~/bin/pi-config/extensions`，仓库换位置就
-加载不到扩展。部署配置请去 dotfiles 仓库跑 `chezmoi apply`。
+本仓库**不再部署任何文件**，也没有部署脚本：dotfiles 那边渲染出的 `extensions` 用绝对路径
+指向 `~/bin/pi-config/extensions`，所以仓库待在 `~/bin/pi-config` 就行。部署配置请去 dotfiles
+仓库跑 `chezmoi apply`。
 
 `settings.json` 与 `mcp.json` 由 dotfiles 的 `create_` 目标初始化，所以源里那份是**新机器的
 初始值**：`packages` 用 npm 包名，Unix 与 Windows 的 `extensions` 路径各按平台渲染。落地之后
 它们归 Pi 管，要改 `packages` 或 MCP server 得手工同步回 dotfiles 源，否则下次装机又是旧值。
 
-`extensions-settings/` 留在仓库里**只是参考模板**（想知道插件设置有哪些时对照用），
-`install.sh` 不部署它。
+`extensions-settings/` 留在仓库里**只是参考模板**（想知道插件设置有哪些时对照用），不部署。
 
 ### 更新
 
@@ -189,8 +185,7 @@ pi --agent scout
 ├── extensions-optional/    # 按需启用的扩展
 ├── extensions-settings/    # package 扩展的全局配置——仅作参考模板，不部署
 ├── tests/                  # 扩展单元测试
-├── deprecated/             # 已废弃的扩展，仅作保留
-└── install.sh              # 只做路径检查，不部署文件
+└── deprecated/             # 已废弃的扩展，仅作保留
 ```
 
 已迁往 [`jwu/dotfiles`](https://github.com/jwu/dotfiles) 的 chezmoi 源（部署到 `~/.pi/agent/`）：
