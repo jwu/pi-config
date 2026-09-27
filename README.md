@@ -151,8 +151,9 @@ pi --agent scout
 
 - 运行期间，终端标签显示 spinner 与当前工作目录。
 - 空闲时，标签恢复为 `π - <目录名>`。
-- 在 ssh 会话里（`SSH_CONNECTION` / `SSH_TTY` 存在），标签前面会加 `🖥 <远程主机名> `，
-  这样远程运行的 Pi 不会把本地 shell 设的 ssh 标记盖掉。
+- 在 ssh 会话里（`SSH_CONNECTION` / `SSH_TTY` 存在），标签前面会加 `🖥(<远端本机IP>) `，
+  这样远程运行的 Pi 不会把本地 shell 设的 ssh 标记盖掉。IP 取 `SSH_CONNECTION` 的第 3 段
+  （sshd 自己的地址）；只有 `SSH_TTY` 时回退为主机名。
 - 支持 OSC 进度信号的终端（如 Ghostty、WezTerm、iTerm2、Kitty、Windows Terminal 和 VS Code Terminal）会显示相应进度；不支持的终端会忽略这些信号，不影响使用。
 
 ### Ghostty 分屏

@@ -12,9 +12,10 @@
  * Title:
  *   - Spinner animation in tab title while agent is active
  *   - Idle title "π - <cwd>" when agent is idle
- *   - Prefixed with "🖥 <host> " inside an ssh session, so a remote pi does
+ *   - Prefixed with "🖥(<ip>) " inside an ssh session, so a remote pi does
  *     not hide the fact that you are on another machine
- *   - Re-asserted on session_info_changed, where pi core rewrites the title
+ *   - Re-asserted on session_start and session_info_changed, where pi core
+ *     rewrites the title
  *
  * Works across Ghostty, WezTerm, iTerm2, Kitty, Windows Terminal,
  * VS Code terminal, and others. All sequences are silently ignored by
@@ -92,17 +93,20 @@ const TITLE_SPINNER_INTERVAL_MS = 80;
 // ─── Extension ───────────────────────────────────────────────────────
 
 /**
- * "🖥 <hostname> " when running inside an ssh session, else "".
+ * "🖥(<address>) " when running inside an ssh session, else "".
  *
  * pi is often run on the remote side, where its own title would otherwise
- * overwrite the ssh marker the local shell set.
+ * overwrite the ssh marker the local shell set. The address is sshd's own
+ * interface (field 3 of "client_ip client_port server_ip server_port"), so
+ * it names the machine you are actually on.
  */
 export function sshTag(
   env: NodeJS.ProcessEnv = process.env,
   hostname: string = os.hostname(),
 ): string {
   if (!env.SSH_CONNECTION && !env.SSH_TTY) return '';
-  return `🖥 ${hostname} `;
+  const address = env.SSH_CONNECTION?.split(' ')[2] || hostname;
+  return `🖥(${address}) `;
 }
 
 export const __testing = {
@@ -179,6 +183,12 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on('session_start', async (_event: SessionStartEvent, ctx: ExtensionContext) => {
     setIdleTitle(ctx);
+    // pi core rewrites the title again when it finishes binding the session,
+    // after this handler has run, so set ours on the next tick to win.
+    setTimeout(() => {
+      if (active) setSpinnerTitle(ctx);
+      else setIdleTitle(ctx);
+    }, 0);
   });
 
   pi.on('session_info_changed', async (_event: SessionInfoChangedEvent, ctx: ExtensionContext) => {
