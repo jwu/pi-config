@@ -149,4 +149,15 @@ describe('terminal-signals ssh tag', () => {
     await h.fire('agent_start');
     expect(h.titles.at(-1)).toBe(`⠋ 🖥 ${os.hostname()} π - project`);
   });
+
+  test('re-asserts the title after pi core rewrites it', async () => {
+    const h = createHarness();
+    await h.fire('session_start');
+    h.titles.length = 0;
+
+    await h.fire('session_info_changed');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(h.titles).toEqual(['π - project']);
+  });
 });

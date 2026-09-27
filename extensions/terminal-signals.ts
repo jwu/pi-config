@@ -14,6 +14,7 @@
  *   - Idle title "π - <cwd>" when agent is idle
  *   - Prefixed with "🖥 <host> " inside an ssh session, so a remote pi does
  *     not hide the fact that you are on another machine
+ *   - Re-asserted on session_info_changed, where pi core rewrites the title
  *
  * Works across Ghostty, WezTerm, iTerm2, Kitty, Windows Terminal,
  * VS Code terminal, and others. All sequences are silently ignored by
@@ -26,6 +27,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
   SessionBeforeSwitchEvent,
+  SessionInfoChangedEvent,
   SessionShutdownEvent,
   SessionStartEvent,
 } from '@earendil-works/pi-coding-agent';
@@ -177,6 +179,15 @@ export default function (pi: ExtensionAPI): void {
 
   pi.on('session_start', async (_event: SessionStartEvent, ctx: ExtensionContext) => {
     setIdleTitle(ctx);
+  });
+
+  pi.on('session_info_changed', async (_event: SessionInfoChangedEvent, ctx: ExtensionContext) => {
+    // pi core rewrites the title to "π - ..." for this same event, after the
+    // extension handlers have run, so set ours on the next tick to win.
+    setTimeout(() => {
+      if (active) setSpinnerTitle(ctx);
+      else setIdleTitle(ctx);
+    }, 0);
   });
 
   pi.on('agent_start', async (_event: AgentStartEvent, ctx: ExtensionContext) => {
