@@ -12,6 +12,8 @@
  * Title:
  *   - Spinner animation in tab title while agent is active
  *   - Idle title "π - <cwd>" when agent is idle
+ *   - Prefixed with "🖥 <host> " inside an ssh session, so a remote pi does
+ *     not hide the fact that you are on another machine
  *
  * Works across Ghostty, WezTerm, iTerm2, Kitty, Windows Terminal,
  * VS Code terminal, and others. All sequences are silently ignored by
@@ -27,6 +29,7 @@ import type {
   SessionShutdownEvent,
   SessionStartEvent,
 } from '@earendil-works/pi-coding-agent';
+import os from 'node:os';
 import { basename } from 'node:path';
 
 // ─── OSC escape sequences ────────────────────────────────────────────
@@ -86,11 +89,27 @@ const TITLE_SPINNER_INTERVAL_MS = 80;
 
 // ─── Extension ───────────────────────────────────────────────────────
 
+/**
+ * "🖥 <hostname> " when running inside an ssh session, else "".
+ *
+ * pi is often run on the remote side, where its own title would otherwise
+ * overwrite the ssh marker the local shell set.
+ */
+export function sshTag(
+  env: NodeJS.ProcessEnv = process.env,
+  hostname: string = os.hostname(),
+): string {
+  if (!env.SSH_CONNECTION && !env.SSH_TTY) return '';
+  return `🖥 ${hostname} `;
+}
+
 export const __testing = {
   progressKeepaliveMs,
+  sshTag,
 };
 
 export default function (pi: ExtensionAPI): void {
+  const ssh = sshTag();
   let active = false;
 
   // OSC progress state
@@ -104,12 +123,12 @@ export default function (pi: ExtensionAPI): void {
 
   const setIdleTitle = (ctx: ExtensionContext): void => {
     if (!ctx.hasUI) return;
-    ctx.ui.setTitle(`π - ${cwdBase(ctx)}`);
+    ctx.ui.setTitle(`${ssh}π - ${cwdBase(ctx)}`);
   };
 
   const setSpinnerTitle = (ctx: ExtensionContext): void => {
     if (!ctx.hasUI) return;
-    ctx.ui.setTitle(`${TITLE_SPINNER_FRAMES[frameIndex]!} π - ${cwdBase(ctx)}`);
+    ctx.ui.setTitle(`${TITLE_SPINNER_FRAMES[frameIndex]!} ${ssh}π - ${cwdBase(ctx)}`);
   };
 
   const stopTitleInterval = (): void => {

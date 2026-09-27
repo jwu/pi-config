@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test';
+import os from 'node:os';
 import init, { __testing } from '../extensions/terminal-signals.ts';
 
-const { progressKeepaliveMs } = __testing;
+const { progressKeepaliveMs, sshTag } = __testing;
 
 const PROGRESS_ACTIVE = '\u001b]9;4;3\u0007';
 const PROGRESS_CLEAR = '\u001b]9;4;0\u0007';
@@ -26,7 +27,20 @@ afterEach(async () => {
   }
 });
 
-function createHarness({ tty = true, cwd = '/repo/project' } = {}) {
+function createHarness({
+  tty = true,
+  cwd = '/repo/project',
+  env = {} as Record<string, string>,
+} = {}) {
+  // The ssh tag is captured at init, so isolate the ssh env around init only.
+  const savedEnv = {
+    SSH_CONNECTION: process.env.SSH_CONNECTION,
+    SSH_TTY: process.env.SSH_TTY,
+  };
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
+  Object.assign(process.env, env);
+
   const writes: string[] = [];
   const titles: string[] = [];
   const handlers = new Map<string, Handler>();
@@ -43,6 +57,11 @@ function createHarness({ tty = true, cwd = '/repo/project' } = {}) {
       return () => {};
     },
   } as never);
+
+  delete process.env.SSH_CONNECTION;
+  delete process.env.SSH_TTY;
+  if (savedEnv.SSH_CONNECTION !== undefined) process.env.SSH_CONNECTION = savedEnv.SSH_CONNECTION;
+  if (savedEnv.SSH_TTY !== undefined) process.env.SSH_TTY = savedEnv.SSH_TTY;
 
   const ctx = {
     hasUI: true,
@@ -111,5 +130,23 @@ describe('terminal-signals OSC lifecycle', () => {
 
     expect(h.writes).toEqual([]);
     expect(h.titles.at(-1)).toBe('π - project');
+  });
+});
+
+describe('terminal-signals ssh tag', () => {
+  test('is empty outside ssh and names the host inside', () => {
+    expect(sshTag({}, 'macmini')).toBe('');
+    expect(sshTag({ SSH_CONNECTION: '10.0.0.1 5 10.0.0.2 22' }, 'macmini')).toBe('🖥 macmini ');
+    expect(sshTag({ SSH_TTY: '/dev/pts/0' }, 'macmini')).toBe('🖥 macmini ');
+  });
+
+  test('prefixes the title inside an ssh session', async () => {
+    const h = createHarness({ env: { SSH_CONNECTION: '10.0.0.1 5 10.0.0.2 22' } });
+
+    await h.fire('session_start');
+    expect(h.titles[0]).toBe(`🖥 ${os.hostname()} π - project`);
+
+    await h.fire('agent_start');
+    expect(h.titles.at(-1)).toBe(`⠋ 🖥 ${os.hostname()} π - project`);
   });
 });
