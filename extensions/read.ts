@@ -1,4 +1,5 @@
-import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   createReadToolDefinition,
@@ -7,8 +8,6 @@ import {
   formatSize,
   getLanguageFromPath,
   highlightCode,
-  keyHint,
-  keyText,
   type ExtensionAPI,
   type ReadToolDetails,
   type ReadToolInput,
@@ -40,9 +39,16 @@ type ReadArgsLike = Partial<ReadToolInput> & {
   path?: unknown;
 };
 
+/** Configured keys for a keybinding id, injected by the host so we see pi's own keybindings. */
+type KeyTextFn = (keybinding: string) => string;
+
+/** Configured keys followed by a description, injected by the host. */
+type KeyHintFn = (keybinding: string, description: string) => string;
+
 interface ReadRenderCallContextLike {
   cwd: string;
   expanded: boolean;
+  keyText: KeyTextFn;
   lastComponent: unknown;
 }
 
@@ -50,6 +56,7 @@ interface ReadRenderContextLike {
   args: ReadArgsLike;
   cwd: string;
   isError: boolean;
+  keyHint: KeyHintFn;
   showImages: boolean;
   lastComponent: unknown;
 }
@@ -60,9 +67,44 @@ interface CompactReadClassification {
 }
 
 const COMPACT_RESOURCE_FILE_NAMES = new Set(['AGENTS.md', 'AGENTS.MD', 'CLAUDE.md', 'CLAUDE.MD']);
-const PI_PACKAGE_ROOT = fileURLToPath(
-  new URL('../node_modules/@earendil-works/pi-coding-agent/', import.meta.url),
-);
+
+const PI_PACKAGE_NAME = '@earendil-works/pi-coding-agent';
+
+/** Nearest ancestor package.json named like pi, starting from a file or directory path. */
+function findPiPackageRoot(start: string | undefined): string | undefined {
+  if (!start) return undefined;
+  let dir = dirname(resolve(start));
+  for (;;) {
+    try {
+      const { name } = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as {
+        name?: unknown;
+      };
+      if (name === PI_PACKAGE_NAME) return dir;
+    } catch {
+      // No package.json here; keep walking up.
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+/**
+ * The pi package that is actually running, so reads of its README, docs and examples
+ * classify as docs. `process.argv[1]` is pi's bundled CLI entry; resolving the module
+ * only sees this extension's own copy, which can be a different version.
+ */
+function resolvePiPackageRoot(): string | undefined {
+  const fromEntry = findPiPackageRoot(process.argv[1]);
+  if (fromEntry) return fromEntry;
+  try {
+    return findPiPackageRoot(fileURLToPath(import.meta.resolve(PI_PACKAGE_NAME)));
+  } catch {
+    return undefined;
+  }
+}
+
+const PI_PACKAGE_ROOT = resolvePiPackageRoot();
 
 function stripAnsi(value: string): string {
   return value
@@ -154,6 +196,7 @@ function formatPathRelativeToCwdOrAbsolute(absolutePath: string, cwd: string): s
 }
 
 function getPiDocsClassification(absolutePath: string): CompactReadClassification | undefined {
+  if (!PI_PACKAGE_ROOT) return undefined;
   const relativePath = relative(resolve(PI_PACKAGE_ROOT), resolve(absolutePath));
   if (
     relativePath === '' ||
@@ -205,6 +248,7 @@ function formatSkillReadCall(
   classification: CompactReadClassification,
   args: ReadArgsLike | undefined,
   theme: Theme,
+  keyText: KeyTextFn,
 ): string {
   const expandHint = theme.fg('dim', ` (${keyText('app.tools.expand')} to expand)`);
   return `${theme.fg('toolTitle', theme.bold('read skill'))} ${theme.fg('accent', classification.label)}${formatReadLineRange(args, theme)}${expandHint}`;
@@ -218,6 +262,7 @@ function formatReadResult(
   showImages: boolean,
   cwd: string,
   isError: boolean,
+  keyHint: KeyHintFn,
 ): string {
   // 原版 Pi read 在折叠状态下会隐藏所有非错误结果预览；这里保留旧行为：
   // 只有 compact resource/docs/skill read 在折叠时隐藏预览，普通 read 仍显示前几行。
@@ -308,7 +353,9 @@ export default function (pi: ExtensionAPI): void {
       // 类型的内置行为，只把 skill 改成 `read skill`，让标题风格保持一致。
       const component =
         readContext.lastComponent instanceof Text ? readContext.lastComponent : new Text('', 0, 0);
-      component.setText(formatSkillReadCall(classification, args as ReadArgsLike, theme));
+      component.setText(
+        formatSkillReadCall(classification, args as ReadArgsLike, theme, readContext.keyText),
+      );
       return component;
     },
 
@@ -325,6 +372,7 @@ export default function (pi: ExtensionAPI): void {
           readContext.showImages,
           readContext.cwd,
           readContext.isError,
+          readContext.keyHint,
         ),
       );
       return component;

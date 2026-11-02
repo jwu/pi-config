@@ -3,7 +3,6 @@ import {
   createGrepToolDefinition,
   DEFAULT_MAX_BYTES,
   formatSize,
-  keyHint,
   type ExtensionAPI,
   type GrepToolDetails,
   type Theme,
@@ -181,7 +180,7 @@ function registerGrepHighlightTool(pi: ExtensionAPI, cwd: string): void {
         text += `\n${displayLines.map((line) => renderGrepLine(line, theme)).join('\n')}`;
 
         if (remaining > 0) {
-          text += `${theme.fg('muted', `\n... (${remaining} more lines,`)} ${keyHint(
+          text += `${theme.fg('muted', `\n... (${remaining} more lines,`)} ${context.keyHint(
             'app.tools.expand',
             'to expand',
           )})`;

@@ -55,11 +55,29 @@ describe('read extension helpers', () => {
     const skillArgs = { path: '.pi/skills/ask-user/SKILL.md' };
     const result = { content: [{ type: 'text' as const, text: 'secret' }] };
 
-    expect(formatReadResult(skillArgs, result, { expanded: false } as never, theme as never, true, '/repo', false)).toBe(
-      '',
-    );
     expect(
-      formatReadResult({ path: 'src/file.txt' }, result, { expanded: false } as never, theme as never, true, '/repo', false),
+      formatReadResult(
+        skillArgs,
+        result,
+        { expanded: false } as never,
+        theme as never,
+        true,
+        '/repo',
+        false,
+        () => 'ctrl+o',
+      ),
+    ).toBe('');
+    expect(
+      formatReadResult(
+        { path: 'src/file.txt' },
+        result,
+        { expanded: false } as never,
+        theme as never,
+        true,
+        '/repo',
+        false,
+        () => 'ctrl+o',
+      ),
     ).toContain('secret');
   });
 });
