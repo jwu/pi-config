@@ -115,7 +115,9 @@ Replace instructions.
       },
     );
 
-    expect(prompt.indexOf('Replace instructions.')).toBeLessThan(prompt.indexOf('Available tools:'));
+    expect(prompt.indexOf('Replace instructions.')).toBeLessThan(
+      prompt.indexOf('Available tools:'),
+    );
     expect(prompt.indexOf('Available tools:')).toBeLessThan(prompt.indexOf('<available_skills>'));
     expect(prompt).not.toContain('<pi-subagents-runtime-tools />');
   });
@@ -188,6 +190,24 @@ Isolated instructions.
 
     expect(replaceAllPrompt).not.toContain('<project_context>');
     expect(replaceAllPrompt).toContain('Current working directory: /repo');
+  });
+
+  test('preserves leading indentation while dropping extra blank lines after frontmatter', () => {
+    const agent = parseAgent(
+      `---
+name: indented
+thinking: off
+---
+
+
+    indented first line
+Second line.
+`,
+      '/repo/agents/indented.md',
+      'global',
+    );
+
+    expect(agent.prompt).toBe('    indented first line\nSecond line.\n');
   });
 });
 

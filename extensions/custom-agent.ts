@@ -172,7 +172,7 @@ function parseFrontmatter(content: string): { data: Record<string, string>; body
   if (end === -1) throw new Error('missing frontmatter terminator');
 
   const raw = content.slice(4, end);
-  const body = content.slice(end + '\n---'.length).replace(/^\s+/, '');
+  const body = content.slice(end + '\n---'.length).replace(/^\n+/, '');
   const data: Record<string, string> = {};
 
   for (const line of raw.split('\n')) {

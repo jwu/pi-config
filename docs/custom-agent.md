@@ -64,7 +64,7 @@ debug: true
 
 刻意差异：
 
-- body 提取使用 `replace(/^\s+/, '')`，避免 append 模式因为 frontmatter 后空行多产生额外空行。
+- body 提取使用 `replace(/^\n+/, '')`，去掉 frontmatter 后的连续空行，同时保留 body 首行的缩进（pi-subagents 只去掉一个换行，可能留下多余空行）。
 
 ## Skill resolution alignment
 
