@@ -18,6 +18,7 @@
 | 搜索结果增强 | [`grep-highlight`](extensions/grep-highlight.ts) 优化 `grep` 调用和搜索结果的 TUI 渲染。 |
 | 文件阅读增强 | [`read`](extensions/read.ts) 优化 `read` 调用、代码高亮和折叠状态下的文件预览。 |
 | 终端状态反馈 | [`terminal-signals`](extensions/terminal-signals.ts) 在 Agent 工作期间发送终端进度信号，并更新终端标签动画。 |
+| 剪贴板回传 | [`clipboard-osc52`](extensions/clipboard-osc52.ts) 让 pi 的复制在交互式终端里额外走 OSC 52，把内容送到客户端所在机器的剪贴板，而不是只写远端剪贴板。 |
 | 工作流资源 | 内置提交 Prompt、编码与 Neovim Skill，以及多种可复用 Agent。 |
 
 ## 前置条件
