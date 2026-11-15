@@ -16,6 +16,7 @@
 | 模糊文件补全 | [`fuzzy-at`](extensions/fuzzy-at.ts) 为 `@` 文件引用提供跨路径的 fuzzy 匹配、命中高亮与长路径折叠。 |
 | Ghostty 会话分屏 | [`ghostty-split`](extensions/ghostty-split.ts) 在 macOS Ghostty 中通过 `/split` 与 `/vsplit` 打开并加载当前 session 的分屏。 |
 | 搜索结果增强 | [`grep-highlight`](extensions/grep-highlight.ts) 优化 `grep` 调用和搜索结果的 TUI 渲染。 |
+| 工具调用守卫 | [`tool-call-guard`](extensions/tool-call-guard.ts) 在 `tool_call` 拦下 bash 里的 `grep`（`git grep` 与 `rg` 放行），提示改用 grep 工具或 rg；防的是裸 `grep -r` 递归扫 `target/`。 |
 | 文件阅读增强 | [`read`](extensions/read.ts) 优化 `read` 调用、代码高亮和折叠状态下的文件预览。 |
 | 终端状态反馈 | [`terminal-signals`](extensions/terminal-signals.ts) 在 Agent 工作期间发送终端进度信号，并更新终端标签动画。 |
 | 剪贴板回传 | [`clipboard-osc52`](extensions/clipboard-osc52.ts) 让 pi 的复制在交互式终端里额外走 OSC 52，把内容送到客户端所在机器的剪贴板，而不是只写远端剪贴板。 |
