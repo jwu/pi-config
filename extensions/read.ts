@@ -264,10 +264,20 @@ function formatReadResult(
   isError: boolean,
   keyHint: KeyHintFn,
 ): string {
+  // 1.6.0 起，Pi 在内置 read 的 details 里标记“当前模型不支持图像输入”，
+  // 并在 TUI 显示提示。这里覆盖了 renderResult，必须自己补上这条提示。
+  const unsupportedBy = result.details?.imageUnsupportedByModel;
+  const imageWarning = unsupportedBy
+    ? `\n${theme.fg(
+        'warning',
+        `[${unsupportedBy} does not support images; it saw a placeholder instead]`,
+      )}`
+    : '';
+
   // 原版 Pi read 在折叠状态下会隐藏所有非错误结果预览；这里保留旧行为：
   // 只有 compact resource/docs/skill read 在折叠时隐藏预览，普通 read 仍显示前几行。
   if (!options.expanded && !isError && getCompactReadClassification(args, cwd)) {
-    return '';
+    return imageWarning;
   }
 
   const rawPath = getReadArgPath(args);
@@ -309,7 +319,7 @@ function formatReadResult(
     }
   }
 
-  return text;
+  return text + imageWarning;
 }
 
 export const __testing = {

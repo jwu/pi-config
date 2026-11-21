@@ -80,4 +80,30 @@ describe('read extension helpers', () => {
       ),
     ).toContain('secret');
   });
+
+  test('shows the 1.6.0 model image warning from read details', () => {
+    const result = {
+      content: [{ type: 'text' as const, text: 'Read image file [image/png]' }],
+      details: { imageUnsupportedByModel: 'gpt-6.2-sol' },
+    };
+    const render = (args: { path: string }) =>
+      formatReadResult(
+        args,
+        result,
+        { expanded: false } as never,
+        theme as never,
+        true,
+        '/repo',
+        false,
+        () => 'ctrl+o',
+      );
+
+    expect(render({ path: 'shot.png' })).toContain(
+      '[gpt-6.2-sol does not support images; it saw a placeholder instead]',
+    );
+    // 折叠的 compact resource 会隐藏预览，但警告仍应可见。
+    expect(render({ path: '.pi/skills/ask-user/SKILL.md' })).toContain(
+      'does not support images',
+    );
+  });
 });
