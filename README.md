@@ -42,6 +42,14 @@
 `extensions/` 也不需要复制：`settings.json` 的 `extensions` 字段把它 live 加载进 Pi。npm 插件
 同样不需要手动装：Pi 首次启动时会按 `settings.json` 的 `packages` 自行安装。
 
+### 通过 npm 安装扩展
+
+```bash
+pi install npm:@johnnywu/pi-config
+```
+
+npm 包会加载 `extensions/`。如果已经通过 Pi 设置加载本地 checkout 的同一组扩展，请在两种安装方式中选一种。
+
 ### 克隆与安装依赖
 
 ```bash

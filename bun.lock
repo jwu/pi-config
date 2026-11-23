@@ -4,12 +4,19 @@
   "workspaces": {
     "": {
       "name": "pi-config",
+      "dependencies": {
+        "@johnnywu/pi-agent-profiles": "0.1.0",
+      },
       "devDependencies": {
         "@earendil-works/pi-coding-agent": "^1.6.0",
         "@earendil-works/pi-tui": "^1.6.0",
         "@types/node": "^26.5.1",
         "prettier": "^3.9.6",
         "typescript": "^7.0.2",
+      },
+      "peerDependencies": {
+        "@earendil-works/pi-coding-agent": "^1.6.0",
+        "@earendil-works/pi-tui": "^1.6.0",
       },
     },
   },
@@ -75,6 +82,8 @@
     "@google/genai": ["@google/genai@2.32.0", "", { "dependencies": { "google-auth-library": "^10.3.0", "p-retry": "^4.6.2", "protobufjs": "^7.5.4", "ws": "^8.18.0" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.25.2" }, "optionalPeers": ["@modelcontextprotocol/sdk"] }, "sha512-60c79uXpR0a47bmGqDxbXEBuQUalNmwo5mx5kqb91jIW4FoqpsLSt86DeVhRhtH5+s/16Wqxt3sXzFQn2U1OHQ=="],
 
     "@isaacs/nonrecursive-glob-match": ["@isaacs/nonrecursive-glob-match@1.0.3", "", {}, "sha512-SI7kyKHq4XXDRozw+r9GlRZkia1ZkFrpLW98r2IC2Bpr8YkFGE3fvjzmxCG0x78A++69HmDNrDvSMYBZmHGpKA=="],
+
+    "@johnnywu/pi-agent-profiles": ["@johnnywu/pi-agent-profiles@0.1.0", "", { "peerDependencies": { "@earendil-works/pi-coding-agent": "^1.6.0" } }, "sha512-1fnISF/2kNppJzjg/QCVtKAMbh0VbRsHmnGD3et08lzw+y3pAk9B+/xMe0W+l4sXLQ9xQg+Mzy1YBfZZGxtDlw=="],
 
     "@protobufjs/aspromise": ["@protobufjs/aspromise@1.1.2", "", {}, "sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ=="],
 

@@ -1,7 +1,15 @@
 {
-  "name": "pi-config",
-  "private": true,
+  "name": "@johnnywu/pi-config",
+  "version": "0.1.0",
+  "description": "Pi extensions from jwu/pi-config",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jwu/pi-config.git"
+  },
+  "engines": { "node": ">=22.19.0" },
+  "files": ["extensions/", "extensions-optional/", "docs/"],
+  "publishConfig": { "access": "public" },
   "scripts": {
     "typecheck": "bun tsc --noEmit --ignoreDeprecations 6.0",
     "test": "bun test",
@@ -13,6 +21,13 @@
     "extensions": [
       "./extensions"
     ]
+  },
+  "dependencies": {
+    "@johnnywu/pi-agent-profiles": "0.1.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.6.0",
+    "@earendil-works/pi-tui": "^1.6.0"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^1.6.0",
