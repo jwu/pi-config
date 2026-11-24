@@ -14,7 +14,7 @@
 | 当前会话 Agent | [`custom-agent`](extensions/custom-agent.ts) 让 `pi --agent <name>` 在当前 session 加载 Markdown Agent，支持工具白名单、模型、思考等级、Skill 与 system prompt 模式。 |
 | System Prompt 调试 | [`debug-system-prompt`](extensions/debug-system-prompt.ts) 会在外部编辑器中只读预览当前 session 的最终 system prompt。 |
 | 模糊文件补全 | [`fuzzy-at`](extensions/fuzzy-at.ts) 为 `@` 文件引用提供跨路径的 fuzzy 匹配、命中高亮与长路径折叠。 |
-| Ghostty 会话分屏 | [`ghostty-split`](extensions/ghostty-split.ts) 在 macOS Ghostty 中通过 `/split` 与 `/vsplit` 打开并加载当前 session 的分屏。 |
+| Herdr 会话分屏 | [`herdr-split`](extensions/herdr-split.ts) 在 Herdr 中通过 `/split` 与 `/vsplit` 打开分屏，并在其中 fork 当前 session。 |
 | 搜索结果增强 | [`grep-highlight`](extensions/grep-highlight.ts) 优化 `grep` 调用和搜索结果的 TUI 渲染。 |
 | 工具调用守卫 | [`tool-call-guard`](extensions/tool-call-guard.ts) 在 `tool_call` 拦下 bash 里的 `grep`（`git grep` 与 `rg` 放行），提示改用 grep 工具或 rg；防的是裸 `grep -r` 递归扫 `target/`。 |
 | 文件阅读增强 | [`read`](extensions/read.ts) 优化 `read` 调用、代码高亮和折叠状态下的文件预览。 |
@@ -27,7 +27,7 @@
 - 已安装并完成基本配置的 Pi。
 - [Bun](https://bun.sh/)（用于安装依赖和运行检查）。
 - 建议安装 `fd` 或 `ripgrep`，以获得更快的 `@` 文件补全；未安装时会自动回退至 `find`。
-- 仅 [`ghostty-split`](extensions/ghostty-split.ts) 需要 macOS 和 [Ghostty](https://ghostty.org/)；其他配置不依赖它。
+- 仅 [`herdr-split`](extensions/herdr-split.ts) 需要 Herdr（`herdr-app` 在 PATH 上，且 Pi 运行在 Herdr 的 pane 里）；其他配置不依赖它。
 
 ## 安装与同步
 
@@ -166,7 +166,7 @@ pi --agent scout
   （sshd 自己的地址）；只有 `SSH_TTY` 时回退为主机名。
 - 支持 OSC 进度信号的终端（如 Ghostty、WezTerm、iTerm2、Kitty、Windows Terminal 和 VS Code Terminal）会显示相应进度；不支持的终端会忽略这些信号，不影响使用。
 
-### Ghostty 分屏
+### Herdr 分屏
 
 在已保存 session 的 Pi 中使用：
 
@@ -175,7 +175,12 @@ pi --agent scout
 /vsplit  # 在右侧创建分屏
 ```
 
-新分屏会以同一 session 启动 Pi。该功能仅在 macOS 的 Ghostty 中可用。
+新分屏在当前 Pi 所在 pane 旁打开，用 `pi --fork <当前 session>` 启动：复制出一个新 ID 的独立
+session，原 session 不变，两个进程各写各的文件。需要从更早的节点分叉时，在新分屏里用 `/tree`
+回溯。Pi 退出后分屏留在登录 shell。session 还没有消息（文件尚未落盘）时拒绝分屏。
+
+旧的 Ghostty 版本（AppleScript，`pi --session` 让两个进程共享同一个 session 文件）已移到
+[`deprecated/ghostty-split.ts`](deprecated/ghostty-split.ts)。
 
 ### 提交 Prompt
 
