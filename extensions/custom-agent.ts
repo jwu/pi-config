@@ -12,6 +12,7 @@ import {
   loadAgentDefinitions,
   loadAgentFromPath,
   selectAgentModel,
+  selectAgentTools,
   type AgentProfile as AgentConfig,
   type AgentSource,
   type ThinkingLevel,
@@ -305,16 +306,17 @@ export default function (pi: ExtensionAPI): void {
     await setThinkingLevelWithoutSavingDefault(pi, agent.thinking);
 
     if (agent.tools.length > 0) {
-      const allToolNames = new Set(pi.getAllTools().map((tool) => tool.name));
-      const validTools = agent.tools.filter((tool) => allToolNames.has(tool));
-      const invalidTools = agent.tools.filter((tool) => !allToolNames.has(tool));
-
-      if (invalidTools.length > 0) {
-        const message = `Agent "${agent.name}": unknown tools: ${invalidTools.join(', ')}`;
+      const { selected, missing } = selectAgentTools(
+        agent.tools,
+        pi.getAllTools().map((tool) => tool.name),
+        pi.getActiveTools(),
+      );
+      if (missing.length > 0) {
+        const message = `Agent "${agent.name}": tools did not match: ${missing.join(', ')}`;
         console.warn(`[custom-agent] ${message}`);
         if (ctx.hasUI) ctx.ui.notify(message, 'warning');
       }
-      if (validTools.length > 0) pi.setActiveTools(validTools);
+      pi.setActiveTools(selected);
     }
 
     pi.setSessionName(`agent:${agent.name}`);

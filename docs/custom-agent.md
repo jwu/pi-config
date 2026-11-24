@@ -40,7 +40,7 @@ debug: true
 | --------------- | ----------- | -------------------------------------------------- |
 | `name`          | required    | agent 名称                                         |
 | `description`   | optional    | 展示说明                                           |
-| `tools`         | `[]`        | CSV，如 `read, subagent`                           |
+| `tools`         | `[]`        | CSV，支持 `*` 通配符或 `+` / `-` 增减工具          |
 | `skills`        | `undefined` | CSV，支持 wildcard，如 `obsidian-*`                |
 | `models`        | optional    | CSV 模型 ID 或 `*` 通配符，当前会话默认使用首项     |
 | `thinking`      | `off`       | `off`、`minimal`、`low`、`medium`、`high`、`xhigh` |
@@ -50,6 +50,8 @@ debug: true
 | `debug`         | `false`     | 在工作目录写入 `debug-system-prompt.md`            |
 
 首项为通配符时，选择 Pi 当前可用模型中的第一个匹配项。模型找不到或缺少认证时，`custom-agent` 会发出警告并保留当前会话模型。请将旧的 `model:` 字段重命名为 `models:`，否则加载器会警告并跳过该定义。
+
+`tools: read, hc_*` 将当前会话的活跃工具设为匹配项。`tools: +grep, -write` 在当前活跃工具上增减精确名称。两种写法应分别使用，省略或留空时沿用当前工具。找不到的名称或模式会发出警告。白名单没有任何匹配时，会清空活跃工具。
 
 ## Skills 和系统提示词
 
