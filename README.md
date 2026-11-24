@@ -123,7 +123,7 @@ pi --agent coder
 pi --agent scout
 ```
 
-`coder` 是高思考等级的编码 Agent；`scout` 用于只读侦察。`debug-*` Agent 用于验证 system prompt 与 Skill 注入。Agent frontmatter 支持 `tools`、`model`、`thinking`、`skills`、`allowedAgents`、`systemPrompt` 等字段；完整规则见 [`docs/custom-agent.md`](docs/custom-agent.md)。
+`coder` 是高思考等级的编码 Agent；`scout` 用于只读侦察。`debug-*` Agent 用于验证 system prompt 与 Skill 注入。Agent frontmatter 支持 `tools`、`models`、`thinking`、`skills`、`allowedAgents`、`systemPrompt` 等字段；完整规则见 [`docs/custom-agent.md`](docs/custom-agent.md)。
 
 ### 调试 System Prompt
 

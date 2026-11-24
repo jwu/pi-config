@@ -20,7 +20,7 @@ project agent 覆盖同名 global agent。
 name: debug-subagent-replace
 description: 用于调试 subagent 的 system prompt
 tools: read, subagent
-model: deepseek/deepseek-v4-flash
+models: deepseek/deepseek-v4-flash, magpie/claude/*
 thinking: off
 allowedAgents: scout, debug-subagent
 skills: ask-user
@@ -42,12 +42,14 @@ debug: true
 | `description`   | optional    | 展示说明                                           |
 | `tools`         | `[]`        | CSV，如 `read, subagent`                           |
 | `skills`        | `undefined` | CSV，支持 wildcard，如 `obsidian-*`                |
-| `model`         | optional    | `provider/model`                                   |
+| `models`        | optional    | CSV 模型 ID 或 `*` 通配符，当前会话默认使用首项     |
 | `thinking`      | `off`       | `off`、`minimal`、`low`、`medium`、`high`、`xhigh` |
 | `allowedAgents` | `undefined` | 会和实际存在的 agent 名称取交集                    |
 | `systemPrompt`  | `append`    | `append`、`replace` 或 `replace-all`               |
 | `maxDepth`      | `10`        | 保留字段，方便和 pi-subagents 对齐                 |
 | `debug`         | `false`     | 在工作目录写入 `debug-system-prompt.md`            |
+
+首项为通配符时，选择 Pi 当前可用模型中的第一个匹配项。模型找不到或缺少认证时，`custom-agent` 会发出警告并保留当前会话模型。请将旧的 `model:` 字段重命名为 `models:`，否则加载器会警告并跳过该定义。
 
 ## Skills 和系统提示词
 

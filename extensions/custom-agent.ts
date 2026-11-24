@@ -11,6 +11,7 @@ import {
   applyAgentProfile,
   loadAgentDefinitions,
   loadAgentFromPath,
+  selectAgentModel,
   type AgentProfile as AgentConfig,
   type AgentSource,
   type ThinkingLevel,
@@ -47,12 +48,6 @@ function isAgentPathSelector(selector: string): boolean {
 
 function globalSettingsPath(): string {
   return path.join(os.homedir(), '.pi', 'agent', 'settings.json');
-}
-
-function modelParts(model: string): { provider: string; id: string } | undefined {
-  const slash = model.indexOf('/');
-  if (slash <= 0 || slash === model.length - 1) return undefined;
-  return { provider: model.slice(0, slash), id: model.slice(slash + 1) };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -288,21 +283,23 @@ export default function (pi: ExtensionAPI): void {
     promptBridge.getPrompt = (base, options) =>
       options ? previewAgentPrompt(agent, base, options) : base;
 
-    if (agent.model) {
-      const parts = modelParts(agent.model);
-      const model = parts ? ctx.modelRegistry.find(parts.provider, parts.id) : undefined;
-      if (!model) {
-        const message = `Agent "${agent.name}": model not found: ${agent.model}`;
-        console.warn(`[custom-agent] ${message}`);
-        if (ctx.hasUI) ctx.ui.notify(message, 'warning');
-      } else {
-        const ok = await setModelWithoutSavingDefault(pi, model);
-        if (!ok) {
-          const message = `Agent "${agent.name}": no auth configured for ${agent.model}`;
-          console.warn(`[custom-agent] ${message}`);
-          if (ctx.hasUI) ctx.ui.notify(message, 'warning');
+    try {
+      const selected = selectAgentModel(agent, undefined, () => ctx.modelRegistry.getAvailable());
+      if (selected) {
+        const models = ctx.modelRegistry.getAll();
+        const model =
+          models.find(({ provider, id }) => `${provider}/${id}` === selected) ??
+          ctx.modelRegistry.getAvailable().find(({ id }) => id === selected) ??
+          models.find(({ id }) => id === selected);
+        if (!model) throw new Error(`model not found: ${selected}`);
+        if (!(await setModelWithoutSavingDefault(pi, model))) {
+          throw new Error(`no auth configured for ${selected}`);
         }
       }
+    } catch (error) {
+      const message = `Agent "${agent.name}": ${error instanceof Error ? error.message : String(error)}`;
+      console.warn(`[custom-agent] ${message}`);
+      if (ctx.hasUI) ctx.ui.notify(message, 'warning');
     }
 
     await setThinkingLevelWithoutSavingDefault(pi, agent.thinking);
