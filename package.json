@@ -1,6 +1,6 @@
 {
   "name": "@johnnywu/pi-config",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Pi extensions from jwu/pi-config",
   "type": "module",
   "repository": {
@@ -23,7 +23,7 @@
     ]
   },
   "dependencies": {
-    "@johnnywu/pi-agent-profiles": "0.2.0"
+    "@johnnywu/pi-agent-profiles": "0.3.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "^1.6.0",

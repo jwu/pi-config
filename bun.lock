@@ -5,7 +5,7 @@
     "": {
       "name": "pi-config",
       "dependencies": {
-        "@johnnywu/pi-agent-profiles": "0.2.0",
+        "@johnnywu/pi-agent-profiles": "0.3.0",
       },
       "devDependencies": {
         "@earendil-works/pi-coding-agent": "^1.6.0",
@@ -83,7 +83,7 @@
 
     "@isaacs/nonrecursive-glob-match": ["@isaacs/nonrecursive-glob-match@1.0.3", "", {}, "sha512-SI7kyKHq4XXDRozw+r9GlRZkia1ZkFrpLW98r2IC2Bpr8YkFGE3fvjzmxCG0x78A++69HmDNrDvSMYBZmHGpKA=="],
 
-    "@johnnywu/pi-agent-profiles": ["@johnnywu/pi-agent-profiles@0.2.0", "", { "peerDependencies": { "@earendil-works/pi-coding-agent": "^1.6.0" } }, "sha512-H1gdGlJNqoB/HoIwgxBt5FwakZBtrapei3Dnt2RBWF5pKuAg64OLwFUf5cAFLROj7WpPZOCe5s/QT7FKATSxmg=="],
+    "@johnnywu/pi-agent-profiles": ["@johnnywu/pi-agent-profiles@0.3.0", "", { "peerDependencies": { "@earendil-works/pi-coding-agent": "^1.6.0" } }, "sha512-0Xcw552XE3/EvS/ZFiyN3qViO5Uilqt9InrmFZbcxrEka9WN4SMTm1xLjDbvj8RcfArL+63n+xBpSgIUlXoDGQ=="],
 
     "@protobufjs/aspromise": ["@protobufjs/aspromise@1.1.2", "", {}, "sha512-j+gKExEuLmKwvz3OgROXtrJ2UG2x8Ch2YZUxahh+s1F2HZ+wAceUNLkvy6zKCPVRkU++ZWQrdxsUeQXmcg4uoQ=="],
 

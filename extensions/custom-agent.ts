@@ -9,6 +9,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import {
   applyAgentProfile,
+  herdrAgentTools,
   loadAgentDefinitions,
   loadAgentFromPath,
   selectAgentModel,
@@ -146,6 +147,13 @@ function allowedSubagentsForAgent(
   return [...new Set(allAgentNames.filter((name) => allowed.has(name)))].sort();
 }
 
+// In a Herdr lead, `subagent` also selects the pi-herdr-agents delegation tools, as it does for
+// Herdr children.
+function agentToolEntries(agent: AgentConfig, available: readonly string[]): string[] {
+  if (!available.includes('hc_subagent')) return agent.tools;
+  return herdrAgentTools(agent.tools, { keepSubagent: true });
+}
+
 function displayAgentPath(filePath: string, cwd: string): string {
   const relative = path.relative(cwd, filePath);
   if (relative && !relative.startsWith('..') && !path.isAbsolute(relative)) return relative;
@@ -213,6 +221,7 @@ function previewAgentPrompt(
 
 export const __testing = {
   agentSummary,
+  agentToolEntries,
   allowedSubagentsForAgent,
   isAgentPathSelector,
   previewAgentPrompt,
@@ -306,9 +315,10 @@ export default function (pi: ExtensionAPI): void {
     await setThinkingLevelWithoutSavingDefault(pi, agent.thinking);
 
     if (agent.tools.length > 0) {
+      const available = pi.getAllTools().map((tool) => tool.name);
       const { selected, missing } = selectAgentTools(
-        agent.tools,
-        pi.getAllTools().map((tool) => tool.name),
+        agentToolEntries(agent, available),
+        available,
         pi.getActiveTools(),
       );
       if (missing.length > 0) {

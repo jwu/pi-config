@@ -5,8 +5,13 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { __testing } from '../extensions/custom-agent.ts';
 
-const { agentSummary, allowedSubagentsForAgent, isAgentPathSelector, previewAgentPrompt } =
-  __testing;
+const {
+  agentSummary,
+  agentToolEntries,
+  allowedSubagentsForAgent,
+  isAgentPathSelector,
+  previewAgentPrompt,
+} = __testing;
 
 describe('custom-agent prompt injections', () => {
   test('filters an agent allowlist against registered agents', () => {
@@ -42,6 +47,26 @@ Delegate when useful.
     );
 
     expect(allowedSubagentsForAgent(agent, ['worker', 'scout'])).toBeUndefined();
+  });
+
+  test('adds the Herdr delegation tools to subagent only when pi-herdr-agents is loaded', () => {
+    const agent = parseAgent(
+      '---\nname: lead\ntools: read, subagent\n---\nLead.',
+      '/repo/agents/lead.md',
+      'global',
+    );
+    expect(agentToolEntries(agent, ['read', 'subagent'])).toEqual(['read', 'subagent']);
+    expect(agentToolEntries(agent, ['read', 'subagent', 'hc_subagent'])).toEqual([
+      'read',
+      'subagent',
+      'hc_subagent',
+      'hc_renew',
+      'hc_read',
+      'hc_stop',
+      'hc_rm',
+      'hc_send',
+      'hc_agents',
+    ]);
   });
 
   test('previews the shared profile before the first turn', () => {

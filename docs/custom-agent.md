@@ -51,7 +51,7 @@ debug: true
 
 首项为通配符时，选择 Pi 当前可用模型中的第一个匹配项。模型找不到或缺少认证时，`custom-agent` 会发出警告并保留当前会话模型。请将旧的 `model:` 字段重命名为 `models:`，否则加载器会警告并跳过该定义。
 
-`tools: read, hc_*` 将当前会话的活跃工具设为匹配项。`tools: +grep, -write` 在当前活跃工具上增减精确名称。两种写法应分别使用，省略或留空时沿用当前工具。找不到的名称或模式会发出警告。白名单没有任何匹配时，会清空活跃工具。
+`tools: read, hc_*` 将当前会话的活跃工具设为匹配项。`tools: +grep, -write` 在当前活跃工具上增减精确名称。两种写法应分别使用，省略或留空时沿用当前工具。在 Herdr 中加载了 pi-herdr-agents（已注册 `hc_subagent`）时，`subagent` 还会选中 `hc_subagent`、`hc_renew`、`hc_read`、`hc_stop`、`hc_rm`，非空列表另加 `hc_send` 和 `hc_agents`，规则来自 `herdrAgentTools()`。找不到的名称或模式会发出警告。白名单没有任何匹配时，会清空活跃工具。
 
 ## Skills 和系统提示词
 
@@ -70,6 +70,8 @@ Pi 发现当前会话可用的技能，共享包按 `skills` 中的名称或 `*`
 ```ts
 allowedAgents = existingAgentNames ∩ agent.allowedAgents
 ```
+
+pi-herdr-agents 也监听同一个 `pi-subagents:configure` 事件，用同一份名单限制 `hc_subagent`。
 
 未声明 `allowedAgents` 时，subagent 工具保持不受限。
 
