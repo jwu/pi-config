@@ -9,25 +9,18 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import {
   applyAgentProfile,
+  delegationScopeEvent,
   herdrAgentTools,
+  herdrDelegationTools,
   loadAgentDefinitions,
   loadAgentFromPath,
+  narrowAllowedAgents,
   selectAgentModel,
   selectAgentTools,
   type AgentProfile as AgentConfig,
   type AgentSource,
-  type ThinkingLevel,
+  type DelegationScope,
 } from '@johnnywu/pi-agent-profiles';
-
-interface DefaultModelSettingsSnapshot {
-  exists: boolean;
-  hasDefaultProvider: boolean;
-  hasDefaultModel: boolean;
-  hasDefaultThinkingLevel: boolean;
-  defaultProvider?: unknown;
-  defaultModel?: unknown;
-  defaultThinkingLevel?: unknown;
-}
 
 interface CustomAgentSystemPromptBridge {
   getPrompt?: (basePrompt: string, options?: BuildSystemPromptOptions) => string | undefined;
@@ -48,103 +41,12 @@ function isAgentPathSelector(selector: string): boolean {
   return trimmed.toLowerCase().endsWith('.md') || /[/\\]/.test(trimmed);
 }
 
-function globalSettingsPath(): string {
-  return path.join(os.homedir(), '.pi', 'agent', 'settings.json');
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-async function readGlobalSettings(): Promise<Record<string, unknown>> {
-  try {
-    const parsed = JSON.parse(await fs.readFile(globalSettingsPath(), 'utf8'));
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-async function snapshotDefaultModelSettings(): Promise<DefaultModelSettingsSnapshot> {
-  let exists = true;
-  try {
-    await fs.access(globalSettingsPath());
-  } catch {
-    exists = false;
-  }
-
-  const settings = await readGlobalSettings();
-  return {
-    exists,
-    hasDefaultProvider: Object.hasOwn(settings, 'defaultProvider'),
-    hasDefaultModel: Object.hasOwn(settings, 'defaultModel'),
-    hasDefaultThinkingLevel: Object.hasOwn(settings, 'defaultThinkingLevel'),
-    defaultProvider: settings.defaultProvider,
-    defaultModel: settings.defaultModel,
-    defaultThinkingLevel: settings.defaultThinkingLevel,
-  };
-}
-
-async function restoreDefaultModelSettings(snapshot: DefaultModelSettingsSnapshot): Promise<void> {
-  const settings = await readGlobalSettings();
-
-  if (snapshot.hasDefaultProvider) settings.defaultProvider = snapshot.defaultProvider;
-  else delete settings.defaultProvider;
-
-  if (snapshot.hasDefaultModel) settings.defaultModel = snapshot.defaultModel;
-  else delete settings.defaultModel;
-
-  if (snapshot.hasDefaultThinkingLevel) {
-    settings.defaultThinkingLevel = snapshot.defaultThinkingLevel;
-  } else {
-    delete settings.defaultThinkingLevel;
-  }
-
-  if (!snapshot.exists && Object.keys(settings).length === 0) {
-    try {
-      await fs.unlink(globalSettingsPath());
-    } catch {
-      // Ignore cleanup errors.
-    }
-    return;
-  }
-
-  await fs.mkdir(path.dirname(globalSettingsPath()), { recursive: true });
-  await fs.writeFile(globalSettingsPath(), `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
-}
-
-async function setModelWithoutSavingDefault(
-  pi: ExtensionAPI,
-  model: Parameters<ExtensionAPI['setModel']>[0],
-): Promise<boolean> {
-  const snapshot = await snapshotDefaultModelSettings();
-  try {
-    return await pi.setModel(model);
-  } finally {
-    await restoreDefaultModelSettings(snapshot);
-  }
-}
-
-async function setThinkingLevelWithoutSavingDefault(
-  pi: ExtensionAPI,
-  level: ThinkingLevel,
-): Promise<void> {
-  const snapshot = await snapshotDefaultModelSettings();
-  try {
-    pi.setThinkingLevel(level);
-  } finally {
-    await restoreDefaultModelSettings(snapshot);
-  }
-}
-
 function allowedSubagentsForAgent(
   agent: AgentConfig,
   allAgentNames: string[],
 ): string[] | undefined {
-  if ((agent.allowedAgents?.length ?? 0) === 0) return undefined;
-
-  const allowed = new Set(agent.allowedAgents);
-  return [...new Set(allAgentNames.filter((name) => allowed.has(name)))].sort();
+  if (!agent.allowedAgents?.length) return undefined;
+  return narrowAllowedAgents(allAgentNames, agent.allowedAgents)?.sort();
 }
 
 // In a Herdr lead, `subagent` also selects the pi-herdr-agents delegation tools, as it does for
@@ -152,6 +54,12 @@ function allowedSubagentsForAgent(
 function agentToolEntries(agent: AgentConfig, available: readonly string[]): string[] {
   if (!available.includes('hc_subagent')) return agent.tools;
   return herdrAgentTools(agent.tools, { keepSubagent: true });
+}
+
+// `maxDepth: 0` forbids delegation, so the lead loses the blocking tool and the Herdr ones.
+function withoutDelegationTools(tools: readonly string[]): string[] {
+  const delegation: readonly string[] = ['subagent', ...herdrDelegationTools];
+  return tools.filter((name) => !delegation.includes(name));
 }
 
 function displayAgentPath(filePath: string, cwd: string): string {
@@ -224,6 +132,7 @@ export const __testing = {
   agentToolEntries,
   allowedSubagentsForAgent,
   isAgentPathSelector,
+  withoutDelegationTools,
   previewAgentPrompt,
 };
 
@@ -242,7 +151,7 @@ export default function (pi: ExtensionAPI): void {
   pi.on('session_start', async (_event, ctx) => {
     activeAgent = undefined;
     warnedSkills.clear();
-    pi.events.emit('pi-subagents:configure', { allowedAgents: undefined });
+    pi.events.emit(delegationScopeEvent, {} satisfies DelegationScope);
     startupError = undefined;
     promptBridge.getPrompt = undefined;
 
@@ -284,12 +193,13 @@ export default function (pi: ExtensionAPI): void {
     }
 
     activeAgent = agent;
-    pi.events.emit('pi-subagents:configure', {
+    pi.events.emit(delegationScopeEvent, {
       allowedAgents: allowedSubagentsForAgent(
         agent,
         availableAgents.map((candidate) => candidate.name),
       ),
-    });
+      maxDepth: agent.maxDepth,
+    } satisfies DelegationScope);
     promptBridge.getPrompt = (base, options) =>
       options ? previewAgentPrompt(agent, base, options) : base;
 
@@ -302,7 +212,7 @@ export default function (pi: ExtensionAPI): void {
           ctx.modelRegistry.getAvailable().find(({ id }) => id === selected) ??
           models.find(({ id }) => id === selected);
         if (!model) throw new Error(`model not found: ${selected}`);
-        if (!(await setModelWithoutSavingDefault(pi, model))) {
+        if (!(await pi.setModel(model))) {
           throw new Error(`no auth configured for ${selected}`);
         }
       }
@@ -312,8 +222,9 @@ export default function (pi: ExtensionAPI): void {
       if (ctx.hasUI) ctx.ui.notify(message, 'warning');
     }
 
-    await setThinkingLevelWithoutSavingDefault(pi, agent.thinking);
+    pi.setThinkingLevel(agent.thinking);
 
+    let activeTools: string[] | undefined;
     if (agent.tools.length > 0) {
       const available = pi.getAllTools().map((tool) => tool.name);
       const { selected, missing } = selectAgentTools(
@@ -326,8 +237,12 @@ export default function (pi: ExtensionAPI): void {
         console.warn(`[custom-agent] ${message}`);
         if (ctx.hasUI) ctx.ui.notify(message, 'warning');
       }
-      pi.setActiveTools(selected);
+      activeTools = selected;
     }
+    if (agent.maxDepth === 0) {
+      activeTools = withoutDelegationTools(activeTools ?? pi.getActiveTools());
+    }
+    if (activeTools) pi.setActiveTools(activeTools);
 
     pi.setSessionName(`agent:${agent.name}`);
     if (ctx.hasUI) ctx.ui.notify(agentSummary(agent, ctx.cwd), 'info');

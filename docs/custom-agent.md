@@ -46,8 +46,10 @@ debug: true
 | `thinking`      | `off`       | `off`、`minimal`、`low`、`medium`、`high`、`xhigh` |
 | `allowedAgents` | `undefined` | 会和实际存在的 agent 名称取交集                    |
 | `systemPrompt`  | `append`    | `append`、`replace` 或 `replace-all`               |
-| `maxDepth`      | `10`        | 保留字段，方便和 pi-subagents 对齐                 |
+| `maxDepth`      | `10`        | 本 Agent 之下允许的子 Agent 层数，`0` 表示不能委派 |
 | `debug`         | `false`     | 在工作目录写入 `debug-system-prompt.md`            |
+
+表格之外的字段名会报错，该定义被跳过并给出警告，所以拼错的 `maxDepth` 或 `allowedAgents` 不会被悄悄忽略。
 
 首项为通配符时，选择 Pi 当前可用模型中的第一个匹配项。模型找不到或缺少认证时，`custom-agent` 会发出警告并保留当前会话模型。请将旧的 `model:` 字段重命名为 `models:`，否则加载器会警告并跳过该定义。
 
@@ -74,6 +76,8 @@ allowedAgents = existingAgentNames ∩ agent.allowedAgents
 pi-herdr-agents 也监听同一个 `pi-subagents:configure` 事件，用同一份名单限制 `hc_subagent`。
 
 未声明 `allowedAgents` 时，subagent 工具保持不受限。
+
+同一个事件还带上 `maxDepth`。它从本 Agent 自身算起：`maxDepth: 1` 允许派发一层子 Agent，这些子 Agent 不能再往下派发；后代只能收紧这个上限，不能放宽。pi-subagents 和 pi-herdr-agents 都按这个上限限制各自的委派链。`maxDepth: 0` 时，custom-agent 还会从活跃工具中去掉 `subagent`、`hc_subagent`、`hc_renew`、`hc_read`、`hc_stop` 和 `hc_rm`。
 
 ## Debugging
 

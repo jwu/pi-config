@@ -11,6 +11,7 @@ const {
   allowedSubagentsForAgent,
   isAgentPathSelector,
   previewAgentPrompt,
+  withoutDelegationTools,
 } = __testing;
 
 describe('custom-agent prompt injections', () => {
@@ -67,6 +68,22 @@ Delegate when useful.
       'hc_send',
       'hc_agents',
     ]);
+  });
+
+  test('removes the blocking and Herdr delegation tools for a maxDepth: 0 agent', () => {
+    expect(
+      withoutDelegationTools([
+        'read',
+        'subagent',
+        'hc_subagent',
+        'hc_renew',
+        'hc_read',
+        'hc_stop',
+        'hc_rm',
+        'hc_send',
+        'hc_agents',
+      ]),
+    ).toEqual(['read', 'hc_send', 'hc_agents']);
   });
 
   test('previews the shared profile before the first turn', () => {
