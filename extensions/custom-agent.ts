@@ -160,7 +160,9 @@ export default function (pi: ExtensionAPI): void {
 
     const { agents, warnings } = await loadAgentDefinitions({ cwd: ctx.cwd });
     for (const warning of warnings) {
-      console.warn(`[custom-agent] skipped ${warning.filePath}: ${warning.message}`);
+      const message = `[custom-agent] skipped ${warning.filePath}: ${warning.message}`;
+      console.warn(message);
+      if (ctx.hasUI) ctx.ui.notify(message, 'warning');
     }
 
     let agent: AgentConfig | undefined;
